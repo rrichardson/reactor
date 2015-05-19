@@ -1,0 +1,8 @@
+[package]
+name = "reactor"
+version = "0.1.0"
+authors = ["Rick Richardson <rick.richardson@gmail.com>"]
+
+[dependencies]
+
+mio="*"
