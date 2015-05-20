@@ -1,7 +1,9 @@
 use std::time::duration::Duration;
 use std::io::Error;
+use std::mem;
 use mio::{Sender, Evented, EventLoop, EventLoopConfig, Token, TimerResult, Timeout};
-use reactor_inner::{ReactorInner, ReactorConfig, ReactorControl, TaggedBuf};
+use reactor_handler::{ReactorHandler};
+use reactor_control::{ReactorCtrl, ReactorConfig, ReactorState, TaggedBuf};
 use block_allocator::Allocator;
 use protocol::Protocol;
 
@@ -10,8 +12,9 @@ use protocol::Protocol;
 pub struct Reactor
 where
 {
-    inner: ReactorInner
-    event_loop: EventLoop<ReactorInner<P, H>>
+    ctrl: Rc<RefCell<ReactorCtrl,
+    handler: ReactorHandler,
+    event_loop: EventLoop<ReactorHandler>
 }
 
 impl Reactor
@@ -26,15 +29,20 @@ impl Reactor
             poll_timeout_ms: 100
         };
 
+        Self::configured(config)
     }
 
     /// Construct a new engine with defaults specified by the user
     pub fn configured(cfg: ReactorConfig) -> Reactor {
-        Reactor { event_loop: EventLoop::configured(
+        let eloop = EventLoop::configured(
                     Self::event_loop_config(
                         cfg.out_queue_size, cfg.poll_timeout_ms,
-                        (cfg.max_connections * cfg.timers_per_connection))).unwrap(),
-                  inner: ReactorInner::new(handler, cfg)
+                        (cfg.max_connections * cfg.timers_per_connection))).unwrap();
+        let ctrl = unsafe { ReactorCtrl::new(cfg,  mem::transmute(&mut eloop)) };
+        rcontrol = Rc::new(RefCell::new(ctrl));
+        Reactor { ctrl: rcontrol,
+                  event_loop: eloop,
+                  handler: ReactorHandler::new(rcontrol.clone())
         }
     }
 
@@ -55,7 +63,7 @@ impl Reactor
     pub fn connect<'b>(&mut self,
                    hostname: &str,
                    port: usize) -> Result<Token, Error> {
-        self.inner.connect(hostname, port, &mut self.event_loop)
+        self.handler.ctrl.connect(hostname, port, &mut self.event_loop)
     }
 
     /// listen on the supplied ip address and port
@@ -67,7 +75,7 @@ impl Reactor
                   addr: &'b str,
                   port: usize,
                   cb : F) -> Result<Token, Error> {
-        self.inner.listen(addr, port, &mut self.event_loop)
+        self.handler.listen(addr, port, &mut self.event_loop)
     }
 
     /// fetch the event_loop channel for notifying the event_loop of new outbound data
@@ -80,9 +88,9 @@ impl Reactor
     /// poller, but it could be shorted depending on how many events are
     /// occurring
     pub fn timeout(&mut self, duration: u64, cid: u64) -> TimerResult<Timeout> {
-        let tok = self.inner.timeouts.insert((cid, None)).map_err(|_| format!("failed")).unwrap();
+        let tok = self.handler.timeouts.insert((cid, None)).map_err(|_| format!("failed")).unwrap();
         let handle = self.event_loop.timeout_ms(tok.0 as u64, duration).unwrap();
-        self.inner.timeouts.get_mut(tok).unwrap().1 = Some(handle);
+        self.handler.timeouts.get_mut(tok).unwrap().1 = Some(handle);
         Ok(handle)
     }
 
@@ -106,12 +114,12 @@ impl Reactor
 
     /// process all incoming and outgoing events in a loop
     pub fn run(&mut self) {
-        self.event_loop.run(&mut self.inner).map_err(|_| ()).unwrap();
+        self.event_loop.run(&mut self.handler).map_err(|_| ()).unwrap();
     }
 
     /// process all incoming and outgoing events in a loop
     pub fn run_once(&mut self) {
-        self.event_loop.run_once(&mut self.inner).map_err(|_| ()).unwrap();
+        self.event_loop.run_once(&mut self.handler).map_err(|_| ()).unwrap();
     }
 
     /// calculates the 11th digit of pi
