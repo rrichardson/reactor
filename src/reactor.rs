@@ -10,9 +10,8 @@ use protocol::Protocol;
 
 
 pub struct Reactor
-where
 {
-    ctrl: Rc<RefCell<ReactorCtrl,
+    state: Rc<RefCell<ReactorState>>,
     handler: ReactorHandler,
     event_loop: EventLoop<ReactorHandler>
 }
@@ -38,11 +37,12 @@ impl Reactor
                     Self::event_loop_config(
                         cfg.out_queue_size, cfg.poll_timeout_ms,
                         (cfg.max_connections * cfg.timers_per_connection))).unwrap();
-        let ctrl = unsafe { ReactorCtrl::new(cfg,  mem::transmute(&mut eloop)) };
-        rcontrol = Rc::new(RefCell::new(ctrl));
-        Reactor { ctrl: rcontrol,
+
+        let state = Rc::new(RefCell::new(ReactorState::new(cfg)));
+
+        Reactor { state: state,
                   event_loop: eloop,
-                  handler: ReactorHandler::new(rcontrol.clone())
+                  handler: ReactorHandler { state : state }
         }
     }
 
@@ -61,9 +61,11 @@ impl Reactor
     /// any data that arrives on the connection will be put into a Buf
     /// and sent down the supplied Sender channel along with the Token of the connection
     pub fn connect<'b>(&mut self,
-                   hostname: &str,
-                   port: usize) -> Result<Token, Error> {
-        self.handler.ctrl.connect(hostname, port, &mut self.event_loop)
+                   hostname: &'b str,
+                   port: usize
+                   handler: Box<ConnHandler>) -> Result<Token, Error> {
+        ReactorCtrl::new(self.state.borrow_mut(), &mut event_loop)
+            .connect(hostname, port, handler)
     }
 
     /// listen on the supplied ip address and port
@@ -71,11 +73,12 @@ impl Reactor
     /// all datagrams that arrive will be put into StreamBufs with their
     /// corresponding token, and added to the default outbound data queue
     /// this can be called multiple times for different ips/ports
-    pub fn listen<'b, F : FnMut(sock : TcpStream)>(&mut self,
+    pub fn listen<'b>(&mut self,
                   addr: &'b str,
                   port: usize,
-                  cb : F) -> Result<Token, Error> {
-        self.handler.listen(addr, port, &mut self.event_loop)
+                  handler: Box<ConnHandler>) -> Result<Token, Error> {
+        ReactorCtrl::new(self.state.borrow_mut(), &mut event_loop)
+            .listen(addr, port, handler)
     }
 
     /// fetch the event_loop channel for notifying the event_loop of new outbound data
@@ -83,33 +86,36 @@ impl Reactor
         self.event_loop.channel()
     }
 
-    /// Set a timeout to be executed by the event loop after duration
-    /// Minimum expected resolution is the tick duration of the event loop
-    /// poller, but it could be shorted depending on how many events are
-    /// occurring
-    pub fn timeout(&mut self, duration: u64, cid: u64) -> TimerResult<Timeout> {
-        let tok = self.handler.timeouts.insert((cid, None)).map_err(|_| format!("failed")).unwrap();
-        let handle = self.event_loop.timeout_ms(tok.0 as u64, duration).unwrap();
-        self.handler.timeouts.get_mut(tok).unwrap().1 = Some(handle);
-        Ok(handle)
+    /// Set a timeout to be executed by the event loop after duration milliseconds
+    /// The supplied handler, which is a FnMut will be invoked no sooner than the
+    /// timeout
+    pub fn timeout(&mut self, duration: u64, handler: Box<TimeoutHandler>) -> TimerResult<(Timeout, Token)> {
+        ReactorCtrl::new(self.state.borrow_mut(), &mut event_loop)
+            .timeout(duration, handler)
     }
 
-    pub fn register<E: Evented>(&mut self, io: &E, interest: Interest, opt: PollOpt) -> Result<()> {
-        if let Some(token) = self.add_connection(io) {
-            return event_loop.register_opt(io, token, interest, opt)
-        }
-        Err(Error::new(ErrorKind::Other, "Failed to add connection"))
+    /// Set a timeout to be executed by the event loop after duration milliseconds
+    /// ctxtok specifies a Context to which the timer callback will be directed
+    /// through the usual event dispatch mechanism for Contexts
+    /// This is useful for handling protocols which have a ping/pong style timeout
+    pub fn timeout_conn(&mut self, duration: u64, ctxtok: Token) -> TimerResult<Timeout> {
+        ReactorCtrl::new(self.state.borrow_mut(), &mut event_loop)
+            .timeout_conn(duration, ctxtok)
     }
 
-    pub fn deregister<E: Evented>(&mut self, io: &E) -> Result<()> {
-        self.remove_connection(io);
-        event_loop.deregister(io)
+    /// Trade in an existing context (connected to a resource) and get a Token
+    /// The context will be registered for whichever events are specified in
+    /// its own interest retrieved by get_interest()
+    pub fn register(&mut self, ctx : Box<Context<Socket=Evented>>) -> Result<Token> {
+        ReactorCtrl::new(self.state.borrow_mut(), &mut event_loop)
+            .register(ctx)
     }
 
-    pub fn on_timer() -> Result<()> {
-    }
-
-    pub fn on_notify() -> Result<()> {
+    /// Trade in your token for a Context and deregister the Context's socket/evented
+    /// from the event_loop
+    pub fn deregister(&mut self, token: Token) -> Result<Box<Context<Socket=Evented>>> {
+        ReactorCtrl::new(self.state.borrow_mut(), &mut event_loop)
+            .deregister(token)
     }
 
     /// process all incoming and outgoing events in a loop

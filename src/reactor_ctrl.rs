@@ -2,15 +2,24 @@ use std::mem;
 
 use mio::tcp::{TcpStream, TcpListener};
 use mio::util::{Slab};
-use mio::EventLoop;
+use mio::{Token, EventLoop};
 
 use reactor_handler::ReactorHandler;
+use context::{Context, EventType};
 
 pub type TaggedBuf = (Token, AROIobuf);
 
-type ConnHandler = FnMut(TcpStream) -> Box<Context<Socket=Evented>>;
+type ConnHandler = FnMut(TcpStream, Token, SockAddr) -> Option<Box<Context<Socket=Evented>>>;
+type TimeoutHandler = FnMut(Token);
+
 type ListenRec = (TcpListener, Box<ConnHandler>);
-type PendingRec = (TcpStream, Box<ConnHandler>);
+type TimerRec = (Option<Token>, Option<Box<TimeoutHandler>>);
+
+pub enum ConnRec {
+    Connected(Box<Context<Socket=Evented>>),
+    Pending(TcpStream, Box<ConnHandler>),
+    None
+}
 
 /// Configuration for the Reactor
 /// queue_size: All queues, both inbound and outbound
@@ -22,9 +31,9 @@ pub struct ReactorConfig {
 }
 
 struct ReactorState {
-    listeners: Slab<Listener>,
+    listeners: Slab<ListenRec>,
     conns: Slab<ConnRec>,
-    timeouts: Slab<(u64, Option<Timeout>)>,
+    timeouts: Slab<(TimerRec)>,
     config: ReactorConfig,
 }
 
@@ -64,7 +73,7 @@ impl<'a> ReactorCtrl<'a> {
     pub fn connect<'b>(&self,
                    addr: &'b str,
                    port: usize,
-                   proto: ProtocolRef) -> Result<Token, Error>
+                   handler: Box<ConnHandler>) -> Result<Token, Error>
     {
         let saddr = try!(lookup_host(addr).and_then(|lh| lh.nth(0)
                             .ok_or(Error::last_os_error()))
@@ -74,74 +83,80 @@ impl<'a> ReactorCtrl<'a> {
                             Err(_) => return Err(Error::new(ErrorKind::Other, "Failed to parse Supplied socket address"))
                         }}));
         let sock = try!(TcpStream::connect(&saddr));
-        let tok = try!(self.conns.insert((proto.clone(), Box::new(Connection::new(sock))))
+        let tok = try!(self.state.conns.insert(ConnRec::Pending(sock, handler))
                 .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")));
-        try!(event_loop.register_opt(&self.conns.get_mut(tok).unwrap().1.sock,
-                                     tok, Interest::readable(), PollOpt::edge()));
+        try!(self.event_loop.register_opt(&self.conns.get_mut(tok).unwrap().1.sock, tok, Interest::readable(), PollOpt::edge()));
         Ok(tok)
     }
 
     pub fn listen<'b>(&self,
                       addr: &'b str,
                       port: usize,
-                      proto: ProtocolRef) -> Result<Token, Error>
+                      handler: Box<ConnHandler>) -> Result<Token, Error>
     {
         let saddr : SocketAddr = try!(addr.parse()
                 .map_err(|_| Error::new(ErrorKind::Other, "Failed to parse address")));
         let server = try!(TcpListener::bind(&saddr));
-        let tok = try!(self.listeners.insert((proto, server))
+        let tok = try!(self.state.listeners.insert((server,handler))
                 .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")));
         let &mut (ref proto, ref mut l) = self.conns.get_mut(tok).unwrap();
         try!(event_loop.register_opt(l, tok, Interest::readable(), PollOpt::edge()));
         Ok(tok)
     }
 
-    pub fn accept(&self, token: Token, hint: ReadHint) -> Result<Token, Error> {
+    /// fetch the event_loop channel for notifying the event_loop of new outbound data
+    pub fn channel(&self) -> Sender<TaggedBuf> {
+        self.event_loop.channel()
+    }
 
-        let &mut (ref proto, ref mut accpt) = *self.listeners.get_mut(token).unwrap();
+    /// Set a timeout to be executed by the event loop after duration
+    /// Minimum expected resolution is the tick duration of the event loop
+    /// poller, but it could be shorted depending on how many events are
+    /// occurring
+    pub fn timeout(&mut self, duration: u64, handler: Box<TimeoutHandler>) -> TimerResult<(Timeout, Token)> {
+        let tok = self.state.timeouts.insert((None, Some(handler))).map_err(|_| format!("failed")).unwrap();
+        let handle = try!(self.event_loop.timeout_ms(tok.0, duration));
+        Ok(handle, tok)
+    }
 
-        if let Some(sock) = try!(accpt.accept()) {
-            let peeraddr = try!(conn.sock.peer_addr());
-            if !proto.borrow_mut().pre_accept(peeraddr) {
-                return Error::new(ErrorKind::Other, format!("Connection from {} rejected", peeraddr));
+    pub fn timeout_conn(&mut self, duration: u64, ctxtok: Token) -> TimerResult<Timeout> {
+        let tok = self.state.timeouts.insert((Some(ctxtok),None)).map_err(|_| format!("failed")).unwrap();
+        let handle = try!(self.event_loop.timeout_ms(tok.0, duration));
+        Ok(handle, tok)
+    }
+
+    pub fn register(&mut self, ctx : Box<Context<Socket=Evented>>, interest: Interest) -> Result<Token> {
+
+        let token = try!(self.state.conns.insert(ConnRec::Connected(ctx))
+            .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")));
+
+        try!(self.event_loop.register_opt(ctx.get_evented(), token, ctx.get_interest(), PollOpt::edge()));
+        Ok(token)
+    }
+
+    pub fn deregister(&mut self, token: Token) -> Result<Box<Context<Socket=Evented>>> {
+        if let Some(conn) = self.state.conns.remove(token) {
+            match conn {
+                ConnRec::Connected(ctx) => {
+                    self.event_loop.deregister(ctx.get_evented());
+                    Ok(ctx)
+                }
+                ConnRec::Pending((sock, _)) => {
+                    self.event_loop.deregister(sock);
+                    Error::new(ErrorKind::Other, "Connection for token was pending, no context to return");
+                }
+                _ => {
+                    Error::new(ErrorKind::Other, "No context for Token");
+                }
             }
-            let tok = try!(self.conns.insert((proto.clone(), Box::new(Connection::new(sock))))
-                .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")));
-            let &mut (ref proto, ref mut conn) = self.conns.get_mut(tok).unwrap();
-            if let Some(int) = proto.borrow_mut().on_accept(conn,  peeraddr) {
-                try!(event_loop.register_opt(conn.sock,
-                    tok, int | Interest::hup(), PollOpt::edge()));
-            }
-            try!(event_loop.reregister(accpt, token, Interest::readable(), PollOpt::edge()));
-            return Ok(tok);
         }
         else {
-            Err(Error::last_os_error())
+            Error::new(ErrorKind::Other, "No context for Token");
         }
     }
 
-    pub fn on_read(&self, event_loop: &mut EventLoop<ReactorHandler>, token: Token, hint: ReadHint) {
-
-        let mut close = false;
-        let &mut (ref proto, ref mut conn) = self.conns.get_mut(token).unwrap();
-        match conn.state {
-            InProgress => {
-                conn.state = ConnectionState::Ready;
-                if let Some(int) = proto.borrow_mut().on_connect(conn) {
-                    try!(event_loop.register_opt(conn.sock,
-                        tok, int | Interest::hup(), PollOpt::edge()));
-                }
-            },
-            Ready => {
-                if let Some(int) = tup.0.on_data(conn) {
-                    try!(event_loop.reregister(accpt, token, int | Interest::hup(), PollOpt::edge()));
-                }
-            }
-        }
-        if hint.contains(ReadHint::hup()) {
-            proto.on_disconnect(conn);
-            self.conns.remove(token);
-        }
+    /// calculates the 11th digit of pi
+    pub fn shutdown(&mut self) {
+        self.event_loop.shutdown();
     }
-
 }
