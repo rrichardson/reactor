@@ -1,11 +1,18 @@
 use std::time::duration::Duration;
-use std::io::Error;
+use std::io::{Error, Result};
 use std::mem;
+use std::rc::Rc;
+use std::cell::RefCell;
+
 use mio::{Sender, Evented, EventLoop, EventLoopConfig, Token, TimerResult, Timeout};
 use reactor_handler::{ReactorHandler};
-use reactor_control::{ReactorCtrl, ReactorConfig, ReactorState, TaggedBuf};
-use block_allocator::Allocator;
-use protocol::Protocol;
+use context::{ Context, EventType };
+use reactor_ctrl::{ReactorCtrl,
+                   ReactorConfig,
+                   ReactorState,
+                   TaggedBuf,
+                   ConnHandler,
+                   TimeoutHandler};
 
 
 
@@ -62,9 +69,9 @@ impl Reactor
     /// and sent down the supplied Sender channel along with the Token of the connection
     pub fn connect<'b>(&mut self,
                    hostname: &'b str,
-                   port: usize
-                   handler: Box<ConnHandler>) -> Result<Token, Error> {
-        ReactorCtrl::new(self.state.borrow_mut(), &mut event_loop)
+                   port: usize,
+                   handler: Box<ConnHandler>) -> Result<Token> {
+        ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
             .connect(hostname, port, handler)
     }
 
@@ -76,8 +83,8 @@ impl Reactor
     pub fn listen<'b>(&mut self,
                   addr: &'b str,
                   port: usize,
-                  handler: Box<ConnHandler>) -> Result<Token, Error> {
-        ReactorCtrl::new(self.state.borrow_mut(), &mut event_loop)
+                  handler: Box<ConnHandler>) -> Result<Token> {
+        ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
             .listen(addr, port, handler)
     }
 
@@ -90,7 +97,7 @@ impl Reactor
     /// The supplied handler, which is a FnMut will be invoked no sooner than the
     /// timeout
     pub fn timeout(&mut self, duration: u64, handler: Box<TimeoutHandler>) -> TimerResult<(Timeout, Token)> {
-        ReactorCtrl::new(self.state.borrow_mut(), &mut event_loop)
+        ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
             .timeout(duration, handler)
     }
 
@@ -98,8 +105,8 @@ impl Reactor
     /// ctxtok specifies a Context to which the timer callback will be directed
     /// through the usual event dispatch mechanism for Contexts
     /// This is useful for handling protocols which have a ping/pong style timeout
-    pub fn timeout_conn(&mut self, duration: u64, ctxtok: Token) -> TimerResult<Timeout> {
-        ReactorCtrl::new(self.state.borrow_mut(), &mut event_loop)
+    pub fn timeout_conn(&mut self, duration: u64, ctxtok: Token) -> TimerResult<(Timeout, Token)> {
+        ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
             .timeout_conn(duration, ctxtok)
     }
 
@@ -107,14 +114,14 @@ impl Reactor
     /// The context will be registered for whichever events are specified in
     /// its own interest retrieved by get_interest()
     pub fn register(&mut self, ctx : Box<Context<Socket=Evented>>) -> Result<Token> {
-        ReactorCtrl::new(self.state.borrow_mut(), &mut event_loop)
+        ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
             .register(ctx)
     }
 
     /// Trade in your token for a Context and deregister the Context's socket/evented
     /// from the event_loop
     pub fn deregister(&mut self, token: Token) -> Result<Box<Context<Socket=Evented>>> {
-        ReactorCtrl::new(self.state.borrow_mut(), &mut event_loop)
+        ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
             .deregister(token)
     }
 

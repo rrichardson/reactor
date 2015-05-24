@@ -6,3 +6,5 @@ authors = ["Rick Richardson <rick.richardson@gmail.com>"]
 [dependencies]
 
 mio="*"
+iobuf="*"
+block_allocator="*"

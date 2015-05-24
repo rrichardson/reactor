@@ -1,5 +1,9 @@
 
+#[macro_use]
+extern crate log;
+
 extern crate mio;
+extern crate iobuf;
 
 pub mod context;
 pub mod reactor;
