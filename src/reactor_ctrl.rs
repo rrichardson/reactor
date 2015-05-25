@@ -27,11 +27,16 @@ use context::{Context, EventType};
 
 pub type TaggedBuf = (Token, AROIobuf);
 
-pub type ConnHandler = FnMut(TcpStream, Token, SocketAddr) -> Option<Box<Context<Socket=Evented>>>;
+pub enum ConnResult {
+    Connected(TcpStream, Token, SocketAddr),
+    Failed(Error)
+}
+
+pub type ConnHandler = FnMut(ConnResult) -> Option<Box<Context<Socket=Evented>>>;
 pub type TimeoutHandler = FnMut(Token);
 
-type ListenRec = (TcpListener, Box<ConnHandler>);
-type TimerRec = (Option<Token>, Option<Box<TimeoutHandler>>);
+pub type ListenRec = (TcpListener, Box<ConnHandler>);
+pub type TimerRec = (Option<Token>, Option<Box<TimeoutHandler>>);
 
 pub enum ConnRec {
     Connected(Box<Context<Socket=Evented>>),
@@ -48,11 +53,11 @@ pub struct ReactorConfig {
     pub poll_timeout_ms: usize,
 }
 
-struct ReactorState {
-    listeners: Slab<ListenRec>,
-    conns: Slab<ConnRec>,
-    timeouts: Slab<(TimerRec)>,
-    config: ReactorConfig,
+pub struct ReactorState {
+    pub listeners: Slab<ListenRec>,
+    pub conns: Slab<ConnRec>,
+    pub timeouts: Slab<(TimerRec)>,
+    pub config: ReactorConfig,
 }
 
 impl ReactorState {
@@ -72,15 +77,15 @@ impl ReactorState {
 }
 
 
-struct ReactorCtrl<'a> {
+pub struct ReactorCtrl<'a> {
     state: &'a mut ReactorState,
-    event_loop: &'a EventLoop<ReactorHandler>
+    event_loop: &'a mut EventLoop<ReactorHandler>
 }
 
 impl<'a> ReactorCtrl<'a> {
 
     pub fn new(st: &'a mut ReactorState,
-        el : &'a EventLoop<ReactorHandler>) -> ReactorCtrl<'a>
+        el : &'a mut EventLoop<ReactorHandler>) -> ReactorCtrl<'a>
     {
         ReactorCtrl {
             state: st,
@@ -88,12 +93,12 @@ impl<'a> ReactorCtrl<'a> {
         }
     }
 
-    pub fn connect<'b>(&self,
+    pub fn connect<'b>(&mut self,
                    addr: &'b str,
                    port: usize,
                    handler: Box<ConnHandler>) -> Result<Token>
     {
-        let saddr = try!(lookup_host(addr).and_then(|lh| lh.nth(0)
+        let saddr = try!(lookup_host(addr).and_then(|ref mut lh| lh.nth(0)
                             .ok_or(Error::last_os_error()))
                         .and_then(move |sa| { match sa {
                             Ok(SocketAddr::V4(sa4)) =>
@@ -104,14 +109,14 @@ impl<'a> ReactorCtrl<'a> {
                                 "Failed to parse Supplied socket address"))
                         }}));
         let sock = try!(TcpStream::connect(&saddr));
-        let tok = try!(self.state.conns.insert(ConnRec::Pending(sock, handler))
+        let tok = try!(self.state.conns.insert(ConnRec::None)
                 .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")));
-        try!(self.event_loop.register_opt(&self.state.conns.get(tok).unwrap().get_evented(),
-                                            tok, Interest::readable(), PollOpt::edge()));
+        try!(self.event_loop.register_opt(&sock, tok, Interest::readable(), PollOpt::edge()));
+        self.state.conns[tok] = ConnRec::Pending(sock, handler);
         Ok(tok)
     }
 
-    pub fn listen<'b>(&self,
+    pub fn listen<'b>(&mut self,
                       addr: &'b str,
                       port: usize,
                       handler: Box<ConnHandler>) -> Result<Token>
@@ -138,42 +143,47 @@ impl<'a> ReactorCtrl<'a> {
     pub fn timeout(&mut self, duration: u64, handler: Box<TimeoutHandler>) -> TimerResult<(Timeout, Token)> {
         let tok = self.state.timeouts.insert((None, Some(handler))).map_err(|_| format!("failed")).unwrap();
         let handle = try!(self.event_loop.timeout_ms(tok.0, duration));
-        Ok(handle, tok)
+        Ok((handle, tok))
     }
 
     pub fn timeout_conn(&mut self, duration: u64, ctxtok: Token) -> TimerResult<(Timeout, Token)> {
         let tok = self.state.timeouts.insert((Some(ctxtok),None)).map_err(|_| format!("failed")).unwrap();
         let handle = try!(self.event_loop.timeout_ms(tok.0, duration));
-        Ok(handle, tok)
+        Ok((handle, tok))
     }
 
-    pub fn register(&mut self, ctx : Box<Context<Socket=Evented>>) -> Result<Token> {
-
-        let token = try!(self.state.conns.insert(ConnRec::Connected(ctx))
+    pub fn register<C>(&mut self, ctx : C) -> Result<Token>
+    where C : Context<Socket=Evented> + 'static
+    {
+        let foo : Box<Context<Socket=Evented>> = Box::new(ctx);
+        let token = try!(self.state.conns.insert(ConnRec::None)
             .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")));
 
-        try!(self.event_loop.register_opt(ctx.get_evented(), token, ctx.get_interest(), PollOpt::edge()));
+        try!(self.event_loop.register_opt(foo.get_evented() as &Evented, token, foo.get_interest(), PollOpt::edge()));
+
+        self.state.conns[token] = ConnRec::Connected(foo);
         Ok(token)
     }
 
-    pub fn deregister(&mut self, token: Token) -> Result<Box<Context<Socket=Evented>>> {
+    pub fn deregister(&mut self, token: Token) -> Result<Box<Context<Socket=Evented>>>
+    {
         if let Some(conn) = self.state.conns.remove(token) {
             match conn {
                 ConnRec::Connected(ctx) => {
                     self.event_loop.deregister(ctx.get_evented());
                     Ok(ctx)
                 }
-                ConnRec::Pending((sock, _)) => {
-                    self.event_loop.deregister(sock);
-                    Error::new(ErrorKind::Other, "Connection for token was pending, no context to return");
+                ConnRec::Pending(sock, _) => {
+                    self.event_loop.deregister(&sock);
+                    Err(Error::new(ErrorKind::Other, "Connection for token was pending, no context to return"))
                 }
                 _ => {
-                    Error::new(ErrorKind::Other, "No context for Token");
+                    Err(Error::new(ErrorKind::Other, "No context for Token"))
                 }
             }
         }
         else {
-            Error::new(ErrorKind::Other, "No context for Token");
+            Err(Error::new(ErrorKind::Other, "No context for Token"))
         }
     }
 

@@ -4,7 +4,7 @@ use iobuf::AROIobuf;
 use reactor_ctrl::ReactorCtrl;
 
 
-enum EventType {
+pub enum EventType {
     Readable,
     Writable,
     Disconnect,
@@ -15,12 +15,12 @@ enum EventType {
 
 
 
-trait Context {
-    type Socket : Evented;
+pub trait Context {
+    type Socket : Evented + ?Sized;
 
     fn on_event(&mut self, &mut ReactorCtrl, EventType);
 
-    fn get_evented<'a>(&self) -> &'a Self::Socket;
+    fn get_evented(&self) -> &Evented; //&Self::Socket;
 
-    fn get_interest(self) -> Interest;
+    fn get_interest(&self) -> Interest;
 }

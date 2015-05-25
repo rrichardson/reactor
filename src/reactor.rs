@@ -1,4 +1,3 @@
-use std::time::duration::Duration;
 use std::io::{Error, Result};
 use std::mem;
 use std::rc::Rc;
@@ -13,8 +12,6 @@ use reactor_ctrl::{ReactorCtrl,
                    TaggedBuf,
                    ConnHandler,
                    TimeoutHandler};
-
-
 
 pub struct Reactor
 {
@@ -47,7 +44,7 @@ impl Reactor
 
         let state = Rc::new(RefCell::new(ReactorState::new(cfg)));
 
-        Reactor { state: state,
+        Reactor { state: state.clone(),
                   event_loop: eloop,
                   handler: ReactorHandler { state : state }
         }
@@ -113,14 +110,17 @@ impl Reactor
     /// Trade in an existing context (connected to a resource) and get a Token
     /// The context will be registered for whichever events are specified in
     /// its own interest retrieved by get_interest()
-    pub fn register(&mut self, ctx : Box<Context<Socket=Evented>>) -> Result<Token> {
+    pub fn register<C>(&mut self, ctx : C) -> Result<Token>
+    where C : Context<Socket=Evented> + 'static
+    {
         ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
             .register(ctx)
     }
 
     /// Trade in your token for a Context and deregister the Context's socket/evented
     /// from the event_loop
-    pub fn deregister(&mut self, token: Token) -> Result<Box<Context<Socket=Evented>>> {
+    pub fn deregister(&mut self, token: Token) -> Result<Box<Context<Socket=Evented>>>
+    {
         ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
             .deregister(token)
     }
