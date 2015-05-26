@@ -1,11 +1,9 @@
-use std::mem;
 use std::net::{SocketAddr,
                lookup_host,
                SocketAddrV4,
+               ToSocketAddrs,
                SocketAddrV6};
 use std::io::{Error, ErrorKind, Result};
-use std::rc::Rc;
-use std::cell::RefCell;
 
 use mio::tcp::{TcpStream, TcpListener};
 use mio::util::{Slab};
@@ -14,16 +12,14 @@ use mio::{Token,
           EventLoop,
           Interest,
           PollOpt,
-          ReadHint,
           Timeout,
           Sender,
-          TimerResult,
-          Handler};
+          TimerResult};
 
 use iobuf::AROIobuf;
 
 use reactor_handler::ReactorHandler;
-use context::{Context, EventType};
+use context::{Context};
 
 pub type TaggedBuf = (Token, AROIobuf);
 
@@ -35,7 +31,7 @@ pub enum ConnResult {
 pub type ConnHandler = FnMut(ConnResult) -> Option<Box<Context<Socket=Evented>>>;
 pub type TimeoutHandler = FnMut(Token);
 
-pub type ListenRec = (TcpListener, Box<ConnHandler>);
+pub type ListenRec = Option<(TcpListener, Box<ConnHandler>)>;
 pub type TimerRec = (Option<Token>, Option<Box<TimeoutHandler>>);
 
 pub enum ConnRec {
@@ -65,7 +61,7 @@ impl ReactorState {
     pub fn new(cfg: ReactorConfig) -> ReactorState {
         let num_listeners = 255;
         let conn_slots = cfg.max_connections + num_listeners + 1;
-        let timer_slots = (conn_slots * cfg.timers_per_connection);
+        let timer_slots = conn_slots * cfg.timers_per_connection;
 
         ReactorState {
             listeners: Slab::new_starting_at(Token(0), 255),
@@ -94,11 +90,11 @@ impl<'a> ReactorCtrl<'a> {
     }
 
     pub fn connect<'b>(&mut self,
-                   addr: &'b str,
+                   hostname: &'b str,
                    port: usize,
                    handler: Box<ConnHandler>) -> Result<Token>
     {
-        let saddr = try!(lookup_host(addr).and_then(|ref mut lh| lh.nth(0)
+        let saddr = try!(lookup_host(hostname).and_then(|ref mut lh| lh.nth(0)
                             .ok_or(Error::last_os_error()))
                         .and_then(move |sa| { match sa {
                             Ok(SocketAddr::V4(sa4)) =>
@@ -116,18 +112,17 @@ impl<'a> ReactorCtrl<'a> {
         Ok(tok)
     }
 
-    pub fn listen<'b>(&mut self,
-                      addr: &'b str,
-                      port: usize,
+    pub fn listen<A : ToSocketAddrs>(&mut self,
+                      addr: A,
                       handler: Box<ConnHandler>) -> Result<Token>
     {
-        let saddr : SocketAddr = try!(addr.parse()
-                .map_err(|_| Error::new(ErrorKind::Other, "Failed to parse address")));
+        let saddr : SocketAddr = try!(addr.to_socket_addrs().and_then(|ref mut a| a.nth(0).ok_or(Error::last_os_error())));
         let server = try!(TcpListener::bind(&saddr));
-        let tok = try!(self.state.listeners.insert((server,handler))
+        let tok = try!(self.state.listeners.insert(Some((server,handler)))
                 .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")));
-        let &mut (ref server, _) = self.state.listeners.get_mut(tok).unwrap();
-        try!(self.event_loop.register_opt(server, tok, Interest::readable(), PollOpt::edge()));
+        if let &mut Some((ref server, _)) = self.state.listeners.get_mut(tok).unwrap() {
+            try!(self.event_loop.register_opt(server, tok, Interest::readable(), PollOpt::edge()));
+        }
         Ok(tok)
     }
 
@@ -146,12 +141,15 @@ impl<'a> ReactorCtrl<'a> {
         Ok((handle, tok))
     }
 
+    /// Set a timeout to be executed by the handler of a Context for a given token.
+    /// This is useful for protocols which have timeouts or timed ping/pongs such as IRC.
     pub fn timeout_conn(&mut self, duration: u64, ctxtok: Token) -> TimerResult<(Timeout, Token)> {
         let tok = self.state.timeouts.insert((Some(ctxtok),None)).map_err(|_| format!("failed")).unwrap();
         let handle = try!(self.event_loop.timeout_ms(tok.0, duration));
         Ok((handle, tok))
     }
 
+    /// Supply a context to the event_loop for monitoring and get back a token
     pub fn register<C>(&mut self, ctx : C) -> Result<Token>
     where C : Context<Socket=Evented> + 'static
     {
@@ -165,6 +163,9 @@ impl<'a> ReactorCtrl<'a> {
         Ok(token)
     }
 
+    /// deregister a context for a given token and receive back the context
+    /// NOTE : You cannot deregister the context for a token while running in the
+    /// handler of that context. It must be called for a different context
     pub fn deregister(&mut self, token: Token) -> Result<Box<Context<Socket=Evented>>>
     {
         if let Some(conn) = self.state.conns.remove(token) {

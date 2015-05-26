@@ -1,3 +1,4 @@
+#![feature(lookup_host)]
 
 #[macro_use]
 extern crate log;

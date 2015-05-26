@@ -3,6 +3,7 @@ use std::net::{SocketAddr,
 use std::io::{Error, ErrorKind};
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::mem;
 
 use iobuf::AROIobuf;
 
@@ -19,6 +20,7 @@ use mio::{Token,
 use context::{Context, EventType};
 use reactor_ctrl::{ReactorCtrl,
                    ConnRec,
+                   ListenRec,
                    ConnResult,
                    ReactorState,
                    TaggedBuf};
@@ -31,30 +33,27 @@ pub struct ReactorHandler
 impl ReactorHandler {
     fn on_read(&self, event_loop: &mut EventLoop<ReactorHandler>, token: Token, hint: ReadHint) {
 
-        let mut state = self.state.borrow_mut();
-        let conn = state.conns.get_mut(token).unwrap();
         let close = hint.is_hup() || hint.is_error();
-        match conn {
-            &mut ConnRec::Pending(ref sock, ref mut handler) => {
+        let mut state = self.state.borrow_mut();
+
+        match state.conns.replace(token, ConnRec::None) {
+            Some(ConnRec::Pending(sock, mut handler)) => {
                 if close {
                     //TODO Add exact error message from sockopt
                     handler(ConnResult::Failed(Error::new(ErrorKind::ConnectionRefused, "")));
+                    return;
                 }
                 let peeraddr = sock.peer_addr().unwrap();
-                //FIXME what needs to be done here is we move the connection out of the slab
-                //via remove, temporarily insert a None into the the slab, take the new token
-                //token and pass that into the handler via Connected
-                if let Some(ctx) = handler(ConnResult::Connected(*sock, token, peeraddr)) {
-                    // TODO handle this error
+                if let Some(ctx) = handler(ConnResult::Connected(sock, token, peeraddr)) {
                     event_loop.register_opt(ctx.get_evented(),
                         token, ctx.get_interest() | Interest::hup(), PollOpt::edge()).unwrap();
-                    state.conns[token] = ctx; // TODO FIXME
+                    state.conns.replace(token, ConnRec::Connected(ctx));
                 }
                 else {
                     debug!("Outbound connection to {} rejected", peeraddr);
                 }
             },
-            &mut ConnRec::Connected(ref mut ctx) => {
+            Some(ConnRec::Connected(mut ctx)) => {
                 ctx.on_event(&mut ReactorCtrl::new(&mut *state, event_loop),
                              EventType::Readable);
                 if close {
@@ -63,30 +62,33 @@ impl ReactorHandler {
                 }else {
                     event_loop.reregister(ctx.get_evented(), token, ctx.get_interest() | Interest::hup(), PollOpt::edge()).unwrap();
                 }
+                state.conns.replace(token, ConnRec::Connected(ctx));
             },
-            &mut ConnRec::None => {panic!("Got a readable event for a non-present Context");}
+            _ => {panic!("Got a readable event for an unregistered token");}
         }
     }
 
     fn accept(&self, event_loop: &mut EventLoop<ReactorHandler>, token: Token) {
 
-        let &mut (ref mut accpt, ref mut handler) = self.state.borrow_mut().listeners.get_mut(token).unwrap();
+        let mut state = self.state.borrow_mut();
+        if let Some((mut accpt, mut handler)) = state.listeners.replace(token, None).unwrap() {
+            if let Some(sock) = accpt.accept().unwrap() {
+                event_loop.reregister(&accpt, token, Interest::readable(), PollOpt::edge()).unwrap();
 
-        if let Some(sock) = accpt.accept().unwrap() {
-            event_loop.reregister(accpt, token, Interest::readable(), PollOpt::edge()).unwrap();
-
-            let peeraddr = sock.peer_addr().unwrap();
-            let newtok = self.state.borrow_mut().conns.insert(ConnRec::None)
-                .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")).unwrap();
-            if let Some(ctx) = handler(ConnResult::Connected(sock, newtok, peeraddr)) {
-                let c = self.state.borrow_mut().conns[newtok] = ConnRec::Connected(ctx);
+                let peeraddr = sock.peer_addr().unwrap();
+                let newtok = state.conns.insert(ConnRec::None)
+                    .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")).unwrap();
+                if let Some(ctx) = handler(ConnResult::Connected(sock, newtok, peeraddr)) {
+                    let c = state.conns[newtok] = ConnRec::Connected(ctx);
+                }
+                else {
+                    debug!("Connection from {} rejected", peeraddr);
+                }
             }
             else {
-                debug!("Connection from {} rejected", peeraddr);
+                error!("{}", Error::last_os_error());
             }
-        }
-        else {
-            error!("{}", Error::last_os_error());
+            state.listeners.replace(token, Some((accpt, handler)));
         }
     }
 }
@@ -127,7 +129,7 @@ impl Handler for ReactorHandler
         let token = msg.0;
         if let Some(conn) = self.state.borrow_mut().conns.get_mut(token) {
             match conn {
-                &mut ConnRec::Connected(ctx) => {
+                &mut ConnRec::Connected(ref mut ctx) => {
                     ctx.on_event(&mut ReactorCtrl::new(&mut (*self.state.borrow_mut()), event_loop),
                         EventType::Notify(msg.1));
                     event_loop.reregister(ctx.get_evented(), token,
@@ -144,28 +146,32 @@ impl Handler for ReactorHandler
 
     fn timeout(&mut self, event_loop: &mut EventLoop<ReactorHandler>, timeout : usize) {
 
-        let &mut rec = self.state.borrow_mut().timeouts.get_mut(Token(timeout as usize)).unwrap();
+        let tok = Token(timeout as usize);
+        let mut state = self.state.borrow_mut();
+        let mut rec = state.timeouts.remove(tok);
+
         match rec {
-            (Some(tok), None) => {
-                if let Some(conn) = self.state.borrow_mut().conns.get_mut(tok) {
+            Some((Some(tok), None)) => {
+                if let Some(mut conn) = state.conns.replace(tok, ConnRec::None) {
                     match conn {
-                        &mut ConnRec::Connected(ctx) => {
-                            ctx.on_event(&mut ReactorCtrl::new(&mut (*self.state.borrow_mut()), event_loop),
-                                EventType::Timeout(timeout));
+                        ConnRec::Connected(ref mut ctx) => {
+                            ctx.on_event(&mut ReactorCtrl::new(&mut *state, event_loop),
+                                EventType::Timeout(timeout))
                         },
-                        &mut ConnRec::Pending(_,_) => {
+                        ConnRec::Pending(_,_) => {
                             panic!("Got a timeout event for a pending socket connection");
                         },
-                        &mut ConnRec::None => {
+                        ConnRec::None => {
                             panic!("Got a timeout event for a non-present context")
                         }
                     }
+                    state.conns.replace(tok, conn);
                 }
             },
-            (None, Some(ref mut handler)) => {
+            Some((None, Some(ref mut handler))) => {
                 handler(Token(timeout))
             },
-            _ => {}
+            _ => {panic!("We shouldn't be here")}
         }
     }
 

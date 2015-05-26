@@ -1,11 +1,11 @@
-use std::io::{Error, Result};
-use std::mem;
+use std::io::{Result};
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::net::ToSocketAddrs;
 
 use mio::{Sender, Evented, EventLoop, EventLoopConfig, Token, TimerResult, Timeout};
 use reactor_handler::{ReactorHandler};
-use context::{ Context, EventType };
+use context::{Context};
 use reactor_ctrl::{ReactorCtrl,
                    ReactorConfig,
                    ReactorState,
@@ -77,12 +77,11 @@ impl Reactor
     /// all datagrams that arrive will be put into StreamBufs with their
     /// corresponding token, and added to the default outbound data queue
     /// this can be called multiple times for different ips/ports
-    pub fn listen<'b>(&mut self,
-                  addr: &'b str,
-                  port: usize,
+    pub fn listen<A : ToSocketAddrs>(&mut self,
+                  addr: A,
                   handler: Box<ConnHandler>) -> Result<Token> {
         ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
-            .listen(addr, port, handler)
+            .listen(addr, handler)
     }
 
     /// fetch the event_loop channel for notifying the event_loop of new outbound data
