@@ -171,11 +171,11 @@ impl<'a> ReactorCtrl<'a> {
         if let Some(conn) = self.state.conns.remove(token) {
             match conn {
                 ConnRec::Connected(ctx) => {
-                    self.event_loop.deregister(ctx.get_evented());
+                    self.event_loop.deregister(ctx.get_evented()).unwrap();
                     Ok(ctx)
                 }
                 ConnRec::Pending(sock, _) => {
-                    self.event_loop.deregister(&sock);
+                    self.event_loop.deregister(&sock).unwrap();
                     Err(Error::new(ErrorKind::Other, "Connection for token was pending, no context to return"))
                 }
                 _ => {

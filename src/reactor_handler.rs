@@ -1,40 +1,29 @@
-use std::net::{SocketAddr,
-               lookup_host, SocketAddrV4, SocketAddrV6};
 use std::io::{Error, ErrorKind};
-use std::rc::Rc;
-use std::cell::RefCell;
-use std::mem;
 
-use iobuf::AROIobuf;
-
-use mio::tcp::{TcpStream, TcpListener};
-use mio::util::{Slab};
 use mio::{Token,
           EventLoop,
           Interest,
           PollOpt,
-          Timeout,
           ReadHint,
           Handler};
 
 use context::{Context, EventType};
 use reactor_ctrl::{ReactorCtrl,
                    ConnRec,
-                   ListenRec,
                    ConnResult,
                    ReactorState,
                    TaggedBuf};
 
 pub struct ReactorHandler
 {
-    pub state: Rc<RefCell<ReactorState>>
+    pub state: Option<ReactorState>
 }
 
 impl ReactorHandler {
-    fn on_read(&self, event_loop: &mut EventLoop<ReactorHandler>, token: Token, hint: ReadHint) {
+    fn on_read(&mut self, event_loop: &mut EventLoop<ReactorHandler>, token: Token, hint: ReadHint) {
 
         let close = hint.is_hup() || hint.is_error();
-        let mut state = self.state.borrow_mut();
+        let mut state = self.state.as_mut().unwrap();
 
         match state.conns.replace(token, ConnRec::None) {
             Some(ConnRec::Pending(sock, mut handler)) => {
@@ -68,10 +57,10 @@ impl ReactorHandler {
         }
     }
 
-    fn accept(&self, event_loop: &mut EventLoop<ReactorHandler>, token: Token) {
+    fn accept(&mut self, event_loop: &mut EventLoop<ReactorHandler>, token: Token) {
 
-        let mut state = self.state.borrow_mut();
-        if let Some((mut accpt, mut handler)) = state.listeners.replace(token, None).unwrap() {
+        let mut state = self.state.as_mut().unwrap();
+        if let Some((accpt, mut handler)) = state.listeners.replace(token, None).unwrap() {
             if let Some(sock) = accpt.accept().unwrap() {
                 event_loop.reregister(&accpt, token, Interest::readable(), PollOpt::edge()).unwrap();
 
@@ -79,7 +68,7 @@ impl ReactorHandler {
                 let newtok = state.conns.insert(ConnRec::None)
                     .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")).unwrap();
                 if let Some(ctx) = handler(ConnResult::Connected(sock, newtok, peeraddr)) {
-                    let c = state.conns[newtok] = ConnRec::Connected(ctx);
+                    state.conns[newtok] = ConnRec::Connected(ctx);
                 }
                 else {
                     debug!("Connection from {} rejected", peeraddr);
@@ -100,7 +89,7 @@ impl Handler for ReactorHandler
 
     fn readable(&mut self, event_loop: &mut EventLoop<ReactorHandler>, token: Token, hint: ReadHint) {
         debug!("mio_processor::readable top, token: {:?}", token);
-        if self.state.borrow().listeners.contains(token) {
+        if self.state.as_ref().unwrap().listeners.contains(token) {
             self.accept(event_loop, token);
         } else {
             self.on_read(event_loop, token, hint);
@@ -109,45 +98,41 @@ impl Handler for ReactorHandler
 
     fn writable(&mut self, event_loop: &mut EventLoop<ReactorHandler>, token: Token) {
         debug!("mio_processor::writable, token: {:?}", token);
-
-        if let Some(conn) = self.state.borrow_mut().conns.get_mut(token) {
-            match conn {
-                &mut ConnRec::Connected(ref mut ctx) => {
-                    ctx.on_event(&mut ReactorCtrl::new(&mut (*self.state.borrow_mut()), event_loop),
-                        EventType::Readable);
-                    event_loop.reregister(ctx.get_evented(), token,
-                        ctx.get_interest() | Interest::hup(), PollOpt::edge()).unwrap();
-                },
-                &mut ConnRec::Pending(_, _) => { panic!("Got a writable event for a pending socket connection"); },
-                &mut ConnRec::None => { panic!("Got a writable event for a non-present context") }
-            }
+        let mut state = self.state.as_mut().unwrap();
+        match state.conns.replace(token, ConnRec::None) {
+            Some(ConnRec::Connected(mut ctx)) => {
+                ctx.on_event(&mut ReactorCtrl::new(state, event_loop),
+                    EventType::Readable);
+                event_loop.reregister(ctx.get_evented(), token,
+                    ctx.get_interest() | Interest::hup(), PollOpt::edge()).unwrap();
+                state.conns.replace(token, ConnRec::Connected(ctx));
+            },
+            Some(ConnRec::Pending(_, _)) => { panic!("Got a writable event for a pending socket connection"); },
+            _ => { panic!("Got a writable event for a non-present context") }
         }
     }
 
 
     fn notify(&mut self, event_loop: &mut EventLoop<ReactorHandler>, msg: TaggedBuf) {
         let token = msg.0;
-        if let Some(conn) = self.state.borrow_mut().conns.get_mut(token) {
-            match conn {
-                &mut ConnRec::Connected(ref mut ctx) => {
-                    ctx.on_event(&mut ReactorCtrl::new(&mut (*self.state.borrow_mut()), event_loop),
-                        EventType::Notify(msg.1));
-                    event_loop.reregister(ctx.get_evented(), token,
-                        ctx.get_interest() | Interest::hup(), PollOpt::edge()).unwrap();
-                },
-                &mut ConnRec::Pending(_,_) => { panic!("Got a notify event for a pending socket connection"); },
-                &mut ConnRec::None => { panic!("Got a notify event for a non-present context") }
-            }
-        }
-        else {
-            panic!("Got a notify event for an un-managed socket");
+        let mut state = self.state.as_mut().unwrap();
+        match state.conns.replace(token, ConnRec::None) {
+            Some(ConnRec::Connected(mut ctx)) => {
+                ctx.on_event(&mut ReactorCtrl::new(state, event_loop),
+                    EventType::Notify(msg.1));
+                event_loop.reregister(ctx.get_evented(), token,
+                    ctx.get_interest() | Interest::hup(), PollOpt::edge()).unwrap();
+                state.conns.replace(token, ConnRec::Connected(ctx));
+            },
+            Some(ConnRec::Pending(_,_)) => { panic!("Got a notify event for a pending socket connection"); },
+            _ => { panic!("Got a notify event for a non-present context") }
         }
     }
 
     fn timeout(&mut self, event_loop: &mut EventLoop<ReactorHandler>, timeout : usize) {
 
         let tok = Token(timeout as usize);
-        let mut state = self.state.borrow_mut();
+        let mut state = self.state.as_mut().unwrap();
         let mut rec = state.timeouts.remove(tok);
 
         match rec {

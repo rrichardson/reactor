@@ -1,6 +1,4 @@
 use std::io::{Result};
-use std::rc::Rc;
-use std::cell::RefCell;
 use std::net::ToSocketAddrs;
 
 use mio::{Sender, Evented, EventLoop, EventLoopConfig, Token, TimerResult, Timeout};
@@ -15,7 +13,7 @@ use reactor_ctrl::{ReactorCtrl,
 
 pub struct Reactor
 {
-    state: Rc<RefCell<ReactorState>>,
+    state: Option<ReactorState>,
     handler: ReactorHandler,
     event_loop: EventLoop<ReactorHandler>
 }
@@ -42,11 +40,11 @@ impl Reactor
                         cfg.out_queue_size, cfg.poll_timeout_ms,
                         (cfg.max_connections * cfg.timers_per_connection))).unwrap();
 
-        let state = Rc::new(RefCell::new(ReactorState::new(cfg)));
+        let state = ReactorState::new(cfg);
 
-        Reactor { state: state.clone(),
+        Reactor { state: Some(state),
                   event_loop: eloop,
-                  handler: ReactorHandler { state : state }
+                  handler: ReactorHandler { state : None }
         }
     }
 
@@ -68,7 +66,7 @@ impl Reactor
                    hostname: &'b str,
                    port: usize,
                    handler: Box<ConnHandler>) -> Result<Token> {
-        ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
+        ReactorCtrl::new(self.state.as_mut().unwrap(), &mut self.event_loop)
             .connect(hostname, port, handler)
     }
 
@@ -80,7 +78,7 @@ impl Reactor
     pub fn listen<A : ToSocketAddrs>(&mut self,
                   addr: A,
                   handler: Box<ConnHandler>) -> Result<Token> {
-        ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
+        ReactorCtrl::new(self.state.as_mut().unwrap(), &mut self.event_loop)
             .listen(addr, handler)
     }
 
@@ -93,7 +91,7 @@ impl Reactor
     /// The supplied handler, which is a FnMut will be invoked no sooner than the
     /// timeout
     pub fn timeout(&mut self, duration: u64, handler: Box<TimeoutHandler>) -> TimerResult<(Timeout, Token)> {
-        ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
+        ReactorCtrl::new(self.state.as_mut().unwrap(), &mut self.event_loop)
             .timeout(duration, handler)
     }
 
@@ -102,7 +100,7 @@ impl Reactor
     /// through the usual event dispatch mechanism for Contexts
     /// This is useful for handling protocols which have a ping/pong style timeout
     pub fn timeout_conn(&mut self, duration: u64, ctxtok: Token) -> TimerResult<(Timeout, Token)> {
-        ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
+        ReactorCtrl::new(self.state.as_mut().unwrap(), &mut self.event_loop)
             .timeout_conn(duration, ctxtok)
     }
 
@@ -112,7 +110,7 @@ impl Reactor
     pub fn register<C>(&mut self, ctx : C) -> Result<Token>
     where C : Context<Socket=Evented> + 'static
     {
-        ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
+        ReactorCtrl::new(self.state.as_mut().unwrap(), &mut self.event_loop)
             .register(ctx)
     }
 
@@ -120,18 +118,22 @@ impl Reactor
     /// from the event_loop
     pub fn deregister(&mut self, token: Token) -> Result<Box<Context<Socket=Evented>>>
     {
-        ReactorCtrl::new(&mut (*self.state.borrow_mut()), &mut self.event_loop)
+        ReactorCtrl::new(self.state.as_mut().unwrap(), &mut self.event_loop)
             .deregister(token)
     }
 
     /// process all incoming and outgoing events in a loop
     pub fn run(&mut self) {
+        self.handler.state = self.state.take();
         self.event_loop.run(&mut self.handler).map_err(|_| ()).unwrap();
+        self.state = self.handler.state.take();
     }
 
     /// process all incoming and outgoing events in a loop
     pub fn run_once(&mut self) {
+        self.handler.state = self.state.take();
         self.event_loop.run_once(&mut self.handler).map_err(|_| ()).unwrap();
+        self.state = self.handler.state.take();
     }
 
     /// calculates the 11th digit of pi
