@@ -8,6 +8,8 @@ The design of this API is guided by the following principles (and opinions)
 
 * Reactor should manage events for any number of heterogenous protocols and socket types. e.g. You should be able to use
   the same event loop for both an HTTP server as well as a database client at the same time.
+* It makes no distinction between client and server. Most everything these days both listens() and connects() so these
+  abstractions do as well.
 * Reactor should be as simple as possible. Avoid code gymnastics in favor of uglier approaches that keep code smaller
   (read: This API uses trait objects for polymorphism :) )
 * Reactor should offer the same API interface to the user regardless of the context. E.g. the outer API is the same as

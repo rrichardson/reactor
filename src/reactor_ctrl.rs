@@ -28,8 +28,8 @@ pub enum ConnResult {
     Failed(Error)
 }
 
-pub type ConnHandler<'a> = FnMut(ConnResult) -> Option<Box<Context>> + 'a;
-pub type TimeoutHandler<'a> = FnMut(Token) + 'a;
+pub type ConnHandler<'a> = FnMut(ConnResult, &mut ReactorCtrl) -> Option<Box<Context>> + 'a;
+pub type TimeoutHandler<'a> = FnMut(Token, &mut ReactorCtrl) + 'a;
 
 pub type ListenRec<'a> = Option<(TcpListener, Box<ConnHandler<'a>>)>;
 pub type TimerRec<'a> = (Option<Token>, Option<Box<TimeoutHandler<'a>>>);
@@ -107,7 +107,7 @@ impl<'a, 'b : 'a> ReactorCtrl<'a, 'b> {
         let sock = try!(TcpStream::connect(&saddr));
         let tok = try!(self.state.conns.insert(ConnRec::None)
                 .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")));
-        try!(self.event_loop.register_opt(&sock, tok, Interest::readable(), PollOpt::edge()));
+        try!(self.event_loop.register_opt(&sock, tok, Interest::writable(), PollOpt::edge()));
         self.state.conns[tok] = ConnRec::Pending(sock, handler);
         Ok(tok)
     }
