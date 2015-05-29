@@ -75,7 +75,7 @@ impl<'a> Reactor<'a>
     /// all datagrams that arrive will be put into StreamBufs with their
     /// corresponding token, and added to the default outbound data queue
     /// this can be called multiple times for different ips/ports
-    pub fn listen<'b, A : ToSocketAddrs>(&mut self,
+    pub fn listen<A : ToSocketAddrs>(&mut self,
                   addr: A,
                   handler: Box<ConnHandler<'a>>) -> Result<Token> {
         ReactorCtrl::new(self.state.as_mut().unwrap(), &mut self.event_loop)
