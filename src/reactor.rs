@@ -11,18 +11,18 @@ use reactor_ctrl::{ReactorCtrl,
                    ConnHandler,
                    TimeoutHandler};
 
-pub struct Reactor
+pub struct Reactor<'a>
 {
-    state: Option<ReactorState>,
-    handler: ReactorHandler,
-    event_loop: EventLoop<ReactorHandler>
+    state: Option<ReactorState<'a>>,
+    handler: ReactorHandler<'a>,
+    event_loop: EventLoop<ReactorHandler<'a>>
 }
 
-impl Reactor
+impl<'a> Reactor<'a>
 {
 
     /// Construct a new Reactor with (hopefully) intelligent defaults
-    pub fn new() -> Reactor {
+    pub fn new() -> Reactor<'a> {
         let config = ReactorConfig {
             out_queue_size: 524288,
             max_connections: 10240,
@@ -34,7 +34,7 @@ impl Reactor
     }
 
     /// Construct a new engine with defaults specified by the user
-    pub fn configured(cfg: ReactorConfig) -> Reactor {
+    pub fn configured(cfg: ReactorConfig) -> Reactor<'a> {
         let eloop = EventLoop::configured(
                     Self::event_loop_config(
                         cfg.out_queue_size, cfg.poll_timeout_ms,
@@ -65,7 +65,7 @@ impl Reactor
     pub fn connect<'b>(&mut self,
                    hostname: &'b str,
                    port: usize,
-                   handler: Box<ConnHandler>) -> Result<Token> {
+                   handler: Box<ConnHandler<'a>>) -> Result<Token> {
         ReactorCtrl::new(self.state.as_mut().unwrap(), &mut self.event_loop)
             .connect(hostname, port, handler)
     }
@@ -75,9 +75,9 @@ impl Reactor
     /// all datagrams that arrive will be put into StreamBufs with their
     /// corresponding token, and added to the default outbound data queue
     /// this can be called multiple times for different ips/ports
-    pub fn listen<A : ToSocketAddrs>(&mut self,
+    pub fn listen<'b, A : ToSocketAddrs>(&mut self,
                   addr: A,
-                  handler: Box<ConnHandler>) -> Result<Token> {
+                  handler: Box<ConnHandler<'a>>) -> Result<Token> {
         ReactorCtrl::new(self.state.as_mut().unwrap(), &mut self.event_loop)
             .listen(addr, handler)
     }
@@ -90,7 +90,7 @@ impl Reactor
     /// Set a timeout to be executed by the event loop after duration milliseconds
     /// The supplied handler, which is a FnMut will be invoked no sooner than the
     /// timeout
-    pub fn timeout(&mut self, duration: u64, handler: Box<TimeoutHandler>) -> TimerResult<(Timeout, Token)> {
+    pub fn timeout(&mut self, duration: u64, handler: Box<TimeoutHandler<'a>>) -> TimerResult<(Timeout, Token)> {
         ReactorCtrl::new(self.state.as_mut().unwrap(), &mut self.event_loop)
             .timeout(duration, handler)
     }
@@ -108,7 +108,7 @@ impl Reactor
     /// The context will be registered for whichever events are specified in
     /// its own interest retrieved by get_interest()
     pub fn register<C>(&mut self, ctx : C) -> Result<Token>
-    where C : Context<Socket=Evented> + 'static
+    where C : Context + 'static
     {
         ReactorCtrl::new(self.state.as_mut().unwrap(), &mut self.event_loop)
             .register(ctx)
@@ -116,7 +116,7 @@ impl Reactor
 
     /// Trade in your token for a Context and deregister the Context's socket/evented
     /// from the event_loop
-    pub fn deregister(&mut self, token: Token) -> Result<Box<Context<Socket=Evented>>>
+    pub fn deregister(&mut self, token: Token) -> Result<Box<Context>>
     {
         ReactorCtrl::new(self.state.as_mut().unwrap(), &mut self.event_loop)
             .deregister(token)

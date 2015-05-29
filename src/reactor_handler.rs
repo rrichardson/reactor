@@ -14,13 +14,13 @@ use reactor_ctrl::{ReactorCtrl,
                    ReactorState,
                    TaggedBuf};
 
-pub struct ReactorHandler
+pub struct ReactorHandler<'a>
 {
-    pub state: Option<ReactorState>
+    pub state: Option<ReactorState<'a>>
 }
 
-impl ReactorHandler {
-    fn on_read(&mut self, event_loop: &mut EventLoop<ReactorHandler>, token: Token, hint: ReadHint) {
+impl<'a> ReactorHandler<'a> {
+    fn on_read(&mut self, event_loop: &mut EventLoop<ReactorHandler<'a>>, token: Token, hint: ReadHint) {
 
         let close = hint.is_hup() || hint.is_error();
         let mut state = self.state.as_mut().unwrap();
@@ -57,7 +57,7 @@ impl ReactorHandler {
         }
     }
 
-    fn accept(&mut self, event_loop: &mut EventLoop<ReactorHandler>, token: Token) {
+    fn accept(&mut self, event_loop: &mut EventLoop<ReactorHandler<'a>>, token: Token) {
 
         let mut state = self.state.as_mut().unwrap();
         if let Some((accpt, mut handler)) = state.listeners.replace(token, None).unwrap() {
@@ -82,12 +82,12 @@ impl ReactorHandler {
     }
 }
 
-impl Handler for ReactorHandler
+impl<'a> Handler for ReactorHandler<'a>
 {
     type Timeout = usize;
     type Message = TaggedBuf;
 
-    fn readable(&mut self, event_loop: &mut EventLoop<ReactorHandler>, token: Token, hint: ReadHint) {
+    fn readable(&mut self, event_loop: &mut EventLoop<ReactorHandler<'a>>, token: Token, hint: ReadHint) {
         debug!("mio_processor::readable top, token: {:?}", token);
         if self.state.as_ref().unwrap().listeners.contains(token) {
             self.accept(event_loop, token);
@@ -96,7 +96,7 @@ impl Handler for ReactorHandler
         }
     }
 
-    fn writable(&mut self, event_loop: &mut EventLoop<ReactorHandler>, token: Token) {
+    fn writable(&mut self, event_loop: &mut EventLoop<ReactorHandler<'a>>, token: Token) {
         debug!("mio_processor::writable, token: {:?}", token);
         let mut state = self.state.as_mut().unwrap();
         match state.conns.replace(token, ConnRec::None) {
@@ -113,7 +113,7 @@ impl Handler for ReactorHandler
     }
 
 
-    fn notify(&mut self, event_loop: &mut EventLoop<ReactorHandler>, msg: TaggedBuf) {
+    fn notify(&mut self, event_loop: &mut EventLoop<ReactorHandler<'a>>, msg: TaggedBuf) {
         let token = msg.0;
         let mut state = self.state.as_mut().unwrap();
         match state.conns.replace(token, ConnRec::None) {
@@ -129,7 +129,7 @@ impl Handler for ReactorHandler
         }
     }
 
-    fn timeout(&mut self, event_loop: &mut EventLoop<ReactorHandler>, timeout : usize) {
+    fn timeout(&mut self, event_loop: &mut EventLoop<ReactorHandler<'a>>, timeout : usize) {
 
         let tok = Token(timeout as usize);
         let mut state = self.state.as_mut().unwrap();

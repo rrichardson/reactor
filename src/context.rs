@@ -16,8 +16,6 @@ pub enum EventType {
 
 
 pub trait Context {
-    type Socket : Evented + ?Sized;
-
     fn on_event(&mut self, &mut ReactorCtrl, EventType);
 
     fn get_evented(&self) -> &Evented; //&Self::Socket;

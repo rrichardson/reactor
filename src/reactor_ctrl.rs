@@ -28,15 +28,15 @@ pub enum ConnResult {
     Failed(Error)
 }
 
-pub type ConnHandler = FnMut(ConnResult) -> Option<Box<Context<Socket=Evented>>>;
-pub type TimeoutHandler = FnMut(Token);
+pub type ConnHandler<'a> = FnMut(ConnResult) -> Option<Box<Context>> + 'a;
+pub type TimeoutHandler<'a> = FnMut(Token) + 'a;
 
-pub type ListenRec = Option<(TcpListener, Box<ConnHandler>)>;
-pub type TimerRec = (Option<Token>, Option<Box<TimeoutHandler>>);
+pub type ListenRec<'a> = Option<(TcpListener, Box<ConnHandler<'a>>)>;
+pub type TimerRec<'a> = (Option<Token>, Option<Box<TimeoutHandler<'a>>>);
 
-pub enum ConnRec {
-    Connected(Box<Context<Socket=Evented>>),
-    Pending(TcpStream, Box<ConnHandler>),
+pub enum ConnRec<'a> {
+    Connected(Box<Context>),
+    Pending(TcpStream, Box<ConnHandler<'a>>),
     None
 }
 
@@ -49,16 +49,16 @@ pub struct ReactorConfig {
     pub poll_timeout_ms: usize,
 }
 
-pub struct ReactorState {
-    pub listeners: Slab<ListenRec>,
-    pub conns: Slab<ConnRec>,
-    pub timeouts: Slab<(TimerRec)>,
+pub struct ReactorState<'a> {
+    pub listeners: Slab<ListenRec<'a>>,
+    pub conns: Slab<ConnRec<'a>>,
+    pub timeouts: Slab<(TimerRec<'a>)>,
     pub config: ReactorConfig,
 }
 
-impl ReactorState {
+impl<'a> ReactorState<'a> {
 
-    pub fn new(cfg: ReactorConfig) -> ReactorState {
+    pub fn new(cfg: ReactorConfig) -> ReactorState<'a> {
         let num_listeners = 255;
         let conn_slots = cfg.max_connections + num_listeners + 1;
         let timer_slots = conn_slots * cfg.timers_per_connection;
@@ -73,15 +73,15 @@ impl ReactorState {
 }
 
 
-pub struct ReactorCtrl<'a> {
-    state: &'a mut ReactorState,
-    event_loop: &'a mut EventLoop<ReactorHandler>
+pub struct ReactorCtrl<'a, 'b : 'a> {
+    state: &'a mut ReactorState<'b>,
+    event_loop: &'a mut EventLoop<ReactorHandler<'b>>
 }
 
-impl<'a> ReactorCtrl<'a> {
+impl<'a, 'b : 'a> ReactorCtrl<'a, 'b> {
 
-    pub fn new(st: &'a mut ReactorState,
-        el : &'a mut EventLoop<ReactorHandler>) -> ReactorCtrl<'a>
+    pub fn new(st: &'a mut ReactorState<'b>,
+        el : &'a mut EventLoop<ReactorHandler<'b>>) -> ReactorCtrl<'a, 'b>
     {
         ReactorCtrl {
             state: st,
@@ -89,10 +89,10 @@ impl<'a> ReactorCtrl<'a> {
         }
     }
 
-    pub fn connect<'b>(&mut self,
-                   hostname: &'b str,
+    pub fn connect<'c>(&mut self,
+                   hostname: &'c str,
                    port: usize,
-                   handler: Box<ConnHandler>) -> Result<Token>
+                   handler: Box<ConnHandler<'b>>) -> Result<Token>
     {
         let saddr = try!(lookup_host(hostname).and_then(|ref mut lh| lh.nth(0)
                             .ok_or(Error::last_os_error()))
@@ -114,7 +114,7 @@ impl<'a> ReactorCtrl<'a> {
 
     pub fn listen<A : ToSocketAddrs>(&mut self,
                       addr: A,
-                      handler: Box<ConnHandler>) -> Result<Token>
+                      handler: Box<ConnHandler<'b>>) -> Result<Token>
     {
         let saddr : SocketAddr = try!(addr.to_socket_addrs().and_then(|ref mut a| a.nth(0).ok_or(Error::last_os_error())));
         let server = try!(TcpListener::bind(&saddr));
@@ -135,7 +135,7 @@ impl<'a> ReactorCtrl<'a> {
     /// Minimum expected resolution is the tick duration of the event loop
     /// poller, but it could be shorted depending on how many events are
     /// occurring
-    pub fn timeout(&mut self, duration: u64, handler: Box<TimeoutHandler>) -> TimerResult<(Timeout, Token)> {
+    pub fn timeout(&mut self, duration: u64, handler: Box<TimeoutHandler<'b>>) -> TimerResult<(Timeout, Token)> {
         let tok = self.state.timeouts.insert((None, Some(handler))).map_err(|_| format!("failed")).unwrap();
         let handle = try!(self.event_loop.timeout_ms(tok.0, duration));
         Ok((handle, tok))
@@ -151,9 +151,9 @@ impl<'a> ReactorCtrl<'a> {
 
     /// Supply a context to the event_loop for monitoring and get back a token
     pub fn register<C>(&mut self, ctx : C) -> Result<Token>
-    where C : Context<Socket=Evented> + 'static
+    where C : Context + 'static
     {
-        let foo : Box<Context<Socket=Evented>> = Box::new(ctx);
+        let foo : Box<Context> = Box::new(ctx);
         let token = try!(self.state.conns.insert(ConnRec::None)
             .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")));
 
@@ -166,7 +166,7 @@ impl<'a> ReactorCtrl<'a> {
     /// deregister a context for a given token and receive back the context
     /// NOTE : You cannot deregister the context for a token while running in the
     /// handler of that context. It must be called for a different context
-    pub fn deregister(&mut self, token: Token) -> Result<Box<Context<Socket=Evented>>>
+    pub fn deregister(&mut self, token: Token) -> Result<Box<Context>>
     {
         if let Some(conn) = self.state.conns.remove(token) {
             match conn {
