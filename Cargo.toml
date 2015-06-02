@@ -8,4 +8,5 @@ authors = ["Rick Richardson <rick.richardson@gmail.com>"]
 log="*"
 mio="*"
 iobuf="*"
+time="*"
 block_allocator="*"

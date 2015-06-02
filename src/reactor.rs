@@ -59,9 +59,11 @@ impl<'a> Reactor<'a>
         }
     }
 
-    /// connect to the supplied hostname and port
-    /// any data that arrives on the connection will be put into a Buf
-    /// and sent down the supplied Sender channel along with the Token of the connection
+    /// Attempt a connection to the remote host specified at the remote hostname or ip address
+    /// and the port.  This is a connection on a non-blocking socket, so the connect call will
+    /// return immediately.  It requires a handler, to which it will supply a `ConnResult` which
+    /// will indicate success or failure. On success, it will supply a socket, a token, and a
+    /// remote IP addr. It then expects an Option<Box<`Context`>> so that it can manage its events
     pub fn connect<'b>(&mut self,
                    hostname: &'b str,
                    port: usize,
@@ -70,11 +72,9 @@ impl<'a> Reactor<'a>
             .connect(hostname, port, handler)
     }
 
-    /// listen on the supplied ip address and port
-    /// any new connections will be accepted and polled for read events
-    /// all datagrams that arrive will be put into StreamBufs with their
-    /// corresponding token, and added to the default outbound data queue
-    /// this can be called multiple times for different ips/ports
+    /// Listen on the supplied IP address:port for incoming TCP connections.  This returns
+    /// immediately and expects a handler to which it will supply `ConnResult` and expect
+    /// Option<Box<`Context`>> as a result
     pub fn listen<A : ToSocketAddrs>(&mut self,
                   addr: A,
                   handler: Box<ConnHandler<'a>>) -> Result<Token> {
@@ -97,7 +97,7 @@ impl<'a> Reactor<'a>
 
     /// Set a timeout to be executed by the event loop after duration milliseconds
     /// ctxtok specifies a Context to which the timer callback will be directed
-    /// through the usual event dispatch mechanism for Contexts
+    /// through the usual event dispatch mechanism for `Context`s
     /// This is useful for handling protocols which have a ping/pong style timeout
     pub fn timeout_conn(&mut self, duration: u64, ctxtok: Token) -> TimerResult<(Timeout, Token)> {
         ReactorCtrl::new(self.state.as_mut().unwrap(), &mut self.event_loop)

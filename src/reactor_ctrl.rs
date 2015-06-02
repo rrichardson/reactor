@@ -72,7 +72,9 @@ impl<'a> ReactorState<'a> {
     }
 }
 
-
+/// ReactorCtrl is the event-loop control interface which is passed to every
+/// handler, both the listen/connect handlers as well as the mailbox for
+/// every Context that is managed by Reactor
 pub struct ReactorCtrl<'a, 'b : 'a> {
     state: &'a mut ReactorState<'b>,
     event_loop: &'a mut EventLoop<ReactorHandler<'b>>
@@ -80,6 +82,7 @@ pub struct ReactorCtrl<'a, 'b : 'a> {
 
 impl<'a, 'b : 'a> ReactorCtrl<'a, 'b> {
 
+    #[doc(hidden)]
     pub fn new(st: &'a mut ReactorState<'b>,
         el : &'a mut EventLoop<ReactorHandler<'b>>) -> ReactorCtrl<'a, 'b>
     {
@@ -89,6 +92,11 @@ impl<'a, 'b : 'a> ReactorCtrl<'a, 'b> {
         }
     }
 
+    /// Attempt a connection to the remote host specified at the remote hostname or ip address
+    /// and the port.  This is a connection on a non-blocking socket, so the connect call will
+    /// return immediately.  It requires a handler, to which it will supply a `ConnResult` which
+    /// will indicate success or failure. On success, it will supply a socket, a token, and a
+    /// remote IP addr. It then expects an Option<Box<`Context`>> so that it can manage its events
     pub fn connect<'c>(&mut self,
                    hostname: &'c str,
                    port: usize,
@@ -112,6 +120,9 @@ impl<'a, 'b : 'a> ReactorCtrl<'a, 'b> {
         Ok(tok)
     }
 
+    /// Listen on the supplied IP address:port for incoming TCP connections.  This returns
+    /// immediately and expects a handler to which it will supply `ConnResult` and expect
+    /// Option<Box<`Context`>> as a result
     pub fn listen<A : ToSocketAddrs>(&mut self,
                       addr: A,
                       handler: Box<ConnHandler<'b>>) -> Result<Token>
