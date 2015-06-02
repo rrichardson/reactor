@@ -9,7 +9,8 @@ unstable=[]
 [dependencies]
 
 log="*"
-mio="*"
 iobuf="*"
 time="*"
-block_allocator="*"
+
+[dependencies.mio]
+git = "https://github.com/carllerche/mio"
