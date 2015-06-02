@@ -1,4 +1,8 @@
 
+[![crates.io](https://img.shields.io/crates/v/reactor.svg)](https://crates.io/crates/reactor/)
+
+[![Build Status](https://travis-ci.org/rrichardson/reactor.svg?branch=master)](https://travis-ci.org/rrichardson/reactor)
+
 ## Reactor ##
 
 A high performance, cross platform that makes it easy to do event-driven network programming.
