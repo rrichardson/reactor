@@ -1,2 +1,6 @@
-
 language: rust
+sudo: false
+version:
+  - nightly
+os:
+  - linux
