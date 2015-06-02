@@ -3,6 +3,8 @@
 
 [![Build Status](https://travis-ci.org/rrichardson/reactor.svg?branch=master)](https://travis-ci.org/rrichardson/reactor)
 
+[API DOCS](http://rrichardson.github.io/reactor/)
+
 ## Reactor ##
 
 A high performance, cross platform that makes it easy to do event-driven network programming.
@@ -22,4 +24,4 @@ second on a local machine, that's about 20 microseconds seconds per round-trip.
 Reator Contexts are the core abstraction around a socket or datagram receiver. The primary event handler features a
 mailbox style interface, which matches across all of the events which might effect a socket.
 
-API Docs including a simple example can be found [here](docs)
+API Docs including a simple example can be found [here](http://rrichardson.github.io/reactor/)
