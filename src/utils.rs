@@ -1,39 +1,71 @@
+use std::io::Write;
+use iobuf::Iobuf;
+use std::collections::VecDeque;
 
+/// Simple manager of outbound data for a non-blocking socket
+pub struct OutQueue<B : Iobuf> {
+    q : VecDeque<B>,
+}
 
-fn drain_write_queue {
-        if let Some(&mut (ref mut proto, ref mut c)) = self.conns.get_mut(token) {
+impl<B : Iobuf> OutQueue<B> {
 
-            let mut writable = true;
-            while writable && c.outbuf.len() > 0 {
-                let (result, sz, mid) = {
-                    let (buf, mid) = c.front_mut().unwrap(); //shouldn't panic because of len() check
-                    let sz = buf.len();
-                    (self.sock.write(&mut OutBuf(*buf.0)), sz as usize, mid)
-                };
-                match result {
-                    Ok(Some(n)) =>
+    /// Attempt to write data into non-blocking socket.
+    /// If all data was successfully written, then return true,
+    /// otherwise place remaining data in queue to be written at next
+    /// writable event.  User of this function should set their interest
+    /// to writable upon a false result of this function
+    pub fn write<W : Write>(&mut self, buf : B, sock : &mut W) -> bool {
+        let mut b = buf;
+        if self.q.is_empty() {
+            if let Ok(n) = unsafe { sock.write(b.as_window_slice()) } {
+                b.advance(n as u32).unwrap();
+                if b.is_empty() {
+                    return true;
+                }
+            }
+        }
+        self.q.push_back(b);
+        false
+    }
+
+    /// Attempt to empty the existing write queue into this non-blocking socket
+    /// If all data was successfully written, then return true,
+    /// otherwise place remaining data in queue to be written at next
+    /// writable event.  User of this function should set their interest
+    /// to writable upon a false result of this function
+    pub fn drain<W : Write>(&mut self, sock : &mut W) -> bool {
+        let mut writable = true;
+        while writable && !self.q.is_empty() {
+            let mut flushed = false;
+            {
+                let buf = self.q.front_mut().unwrap(); //shouldn't panic because of is_empty() check
+                let sz = buf.len();
+                match unsafe { sock.write(buf.as_window_slice()) } {
+                    Ok(n) =>
                     {
-                        debug!("Wrote {:?} out of {:?} bytes to socket", n, sz);
-                        if n == sz {
-                            self.outbuf.pop_front(); // we have written the contents of this buffer so lets get rid of it
-                            if let Some(msg) = proto.on_write(mid) {
-                                self.dispatch(msg):
-                            }
+                        if n == 0 {
+                            error!("Got Writable event for socket, but failed to write any bytes");
+                            writable = false;
                         }
-                    },
-                    Ok(None) => { // this is also very unlikely, we got a writable message, but failed
-                        // to write anything at all.
-                        debug!("Got Writable event for socket, but failed to write any bytes");
-                        writable = false;
+                        else if n as u32 == sz {
+                            flushed = true;
+                        } else {
+                            buf.advance(n as u32).unwrap();
+                        }
                     },
                     Err(e) => { error!("error writing to socket: {:?}", e); writable = false }
                 }
             }
-
-            if self.outbuf.len() > 0 {
-                c.interest.insert(Interest::writable());
-                event_loop.reregister(&c.sock, token, c.interest, PollOpt::edge()).unwrap();
+            if flushed {
+                self.q.pop_front(); // we have written the contents of this buffer so lets get rid of it
             }
         }
 
+        if self.q.is_empty() {
+            true
+        }
+        else {
+            false
+        }
+    }
 }

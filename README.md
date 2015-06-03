@@ -7,8 +7,7 @@
 
 ## Reactor ##
 
-A high performance, cross platform that makes it easy to do event-driven network programming.
-
+A high performance, cross platform library that makes event-driven network programming easy.
 
 Reactor is a thin wrapper around mio whose primary goal is to unify the event loops of various networked libraries.
 The goal is to be able to handle the network event management of a web server and a database client (and connection

@@ -185,6 +185,7 @@ mod context;
 mod reactor;
 mod reactor_ctrl;
 mod reactor_handler;
+pub mod utils;
 
 pub use mio::{Interest, Evented, Token};
 pub use mio::tcp;
