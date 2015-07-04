@@ -1,4 +1,4 @@
-#![feature(core)]
+#![feature(slice_bytes)]
 
 /// This example will listen for incoming connections and, once connected, establish a ping/pong
 /// session with them.  It will execute 3 pingpongs before shutting itself down.
@@ -103,7 +103,7 @@ fn main() {
     })).unwrap();
 
     println!("Connecting to localhost");
-    r.connect("localhost", 10000, Box::new(|res, _ctrl| {
+    r.connect("127.0.0.1", 10000, Box::new(|res, _ctrl| {
         match res {
             ConnResult::Connected(sock, tok, addr) => {
                 println!("Completing connection to {}", addr);

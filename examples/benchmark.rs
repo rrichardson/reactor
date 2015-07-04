@@ -1,4 +1,4 @@
-#![feature(core)]
+#![feature(slice_bytes)]
 
 /// See how quickly we can send 1,000,000 round trip pingpongs
 /// in a purely serial fashion
