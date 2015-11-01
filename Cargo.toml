@@ -1,7 +1,7 @@
 [package]
 authors = ["Rick Richardson <rick.richardson@gmail.com>"]
 name = "reactor"
-version = "0.1.0"
+version = "0.1.4"
 
 [dependencies]
 log = "*"
