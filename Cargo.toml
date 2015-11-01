@@ -2,12 +2,17 @@
 authors = ["Rick Richardson <rick.richardson@gmail.com>"]
 name = "reactor"
 version = "0.1.4"
+description = "A wrapper around mio which allows easily composable, but still fast, evented components"
+keywords = ["mio", "epoll", "kqueue", "tcp", "socket", "buffer"]
+license = "BSD"
+repository = "https://github.com/rrichardson/reactor"
+homepage = "http://rrichardson.github.io/reactor/"
 
 [dependencies]
-log = "*"
-mio = "0.4.3"
+log = "0.3.3"
+mio = "^0.4.3"
 tendril = "0.1.6"
-time = "*"
+time = "0.1.33"
 
 [features]
 unstable = []
