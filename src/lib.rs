@@ -19,7 +19,7 @@
 //!
 //!```
 //!
-//! #![feature(core)]
+//! #![feature(slice_bytes)]
 //!
 //! extern crate reactor;
 //!
@@ -30,7 +30,7 @@
 //!               Reactor,
 //!               ConnResult,
 //!               Evented,
-//!               Interest,
+//!               EventSet,
 //!               Context,
 //!               EventType,
 //!               Token};
@@ -39,7 +39,7 @@
 //!
 //!
 //!struct ClientConn {
-//!    interest: Interest,
+//!    interest: EventSet,
 //!    sock : TcpStream,
 //!    token : Token
 //!}
@@ -70,13 +70,13 @@
 //!        &self.sock as &Evented
 //!    }
 //!
-//!    fn get_interest(&self) -> Interest {
+//!    fn get_interest(&self) -> EventSet {
 //!        self.interest
 //!    }
 //!}
 //!
 //!struct ServConn {
-//!    interest: Interest,
+//!    interest: EventSet,
 //!    sock : TcpStream,
 //!    token : Token,
 //!    count : u32,
@@ -113,7 +113,7 @@
 //!        &self.sock as &Evented
 //!    }
 //!
-//!    fn get_interest(&self) -> Interest {
+//!    fn get_interest(&self) -> EventSet {
 //!        self.interest
 //!    }
 //!}
@@ -136,7 +136,7 @@
 //!                ctrl.timeout_conn(1000, tok).unwrap();
 //!
 //!                Some(Box::new(ServConn {
-//!                                interest: Interest::readable(),
+//!                                interest: EventSet::readable(),
 //!                                token: tok.clone(),
 //!                                sock: sock,
 //!                                count: 0}))
@@ -156,7 +156,7 @@
 //!                println!("Completing connection to {}", addr);
 //!                client = Some(tok);
 //!                Some(Box::new(ClientConn {
-//!                                interest: Interest::readable(),
+//!                                interest: EventSet::readable(),
 //!                                token: tok.clone(),
 //!                                sock: sock,
 //!                              }))
@@ -179,7 +179,7 @@
 extern crate log;
 
 extern crate mio;
-extern crate iobuf;
+extern crate tendril;
 
 mod context;
 mod reactor;
@@ -187,7 +187,7 @@ mod reactor_ctrl;
 mod reactor_handler;
 pub mod utils;
 
-pub use mio::{Interest, Evented, Token};
+pub use mio::{EventSet, Evented, Token};
 pub use mio::tcp;
 pub use mio::udp;
 

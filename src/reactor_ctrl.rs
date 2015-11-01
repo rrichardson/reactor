@@ -10,18 +10,19 @@ use mio::util::{Slab};
 use mio::{Token,
           Evented,
           EventLoop,
-          Interest,
+          EventSet,
           PollOpt,
           Timeout,
           Sender,
           TimerResult};
 
-use iobuf::AROIobuf;
+use tendril::{Tendril, Atomic};
+use tendril::fmt::Bytes;
 
 use reactor_handler::ReactorHandler;
 use context::{Context};
 
-pub type TaggedBuf = (Token, AROIobuf);
+pub type TaggedBuf = (Token, Tendril<Bytes, Atomic>);
 
 pub enum ConnResult {
     Connected(TcpStream, Token, SocketAddr),
@@ -115,7 +116,7 @@ impl<'a, 'b : 'a> ReactorCtrl<'a, 'b> {
         let sock = try!(TcpStream::connect(&saddr));
         let tok = try!(self.state.conns.insert(ConnRec::None)
                 .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")));
-        try!(self.event_loop.register_opt(&sock, tok, Interest::writable(), PollOpt::edge()));
+        try!(self.event_loop.register_opt(&sock, tok, EventSet::writable(), PollOpt::edge()));
         self.state.conns[tok] = ConnRec::Pending(sock, handler);
         Ok(tok)
     }
@@ -132,7 +133,7 @@ impl<'a, 'b : 'a> ReactorCtrl<'a, 'b> {
         let tok = try!(self.state.listeners.insert(Some((server,handler)))
                 .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")));
         if let &mut Some((ref server, _)) = self.state.listeners.get_mut(tok).unwrap() {
-            try!(self.event_loop.register_opt(server, tok, Interest::readable(), PollOpt::edge()));
+            try!(self.event_loop.register_opt(server, tok, EventSet::readable(), PollOpt::edge()));
         }
         Ok(tok)
     }

@@ -2,9 +2,8 @@ use std::io::{Error, ErrorKind};
 
 use mio::{Token,
           EventLoop,
-          Interest,
+          EventSet,
           PollOpt,
-          ReadHint,
           Handler};
 
 use context::{Context, EventType};
@@ -20,9 +19,9 @@ pub struct ReactorHandler<'a>
 }
 
 impl<'a> ReactorHandler<'a> {
-    fn on_read(&mut self, event_loop: &mut EventLoop<ReactorHandler<'a>>, token: Token, hint: ReadHint) {
+    fn on_read(&mut self, event_loop: &mut EventLoop<ReactorHandler<'a>>, token: Token, evts : EventSet) {
 
-        let close = hint.is_hup() || hint.is_error();
+        let close = evts.is_hup() || evts.is_error();
         let mut state = self.state.as_mut().unwrap();
 
         match state.conns.replace(token, ConnRec::None) {
@@ -40,7 +39,7 @@ impl<'a> ReactorHandler<'a> {
                     ctx.on_event(&mut ReactorCtrl::new(&mut state, event_loop),
                                  EventType::Disconnect);
                 }else {
-                    event_loop.reregister(ctx.get_evented(), token, ctx.get_interest() | Interest::hup(), PollOpt::edge()).unwrap();
+                    event_loop.reregister(ctx.get_evented(), token, ctx.get_interest() | EventSet::hup(), PollOpt::edge()).unwrap();
                 }
                 state.conns.replace(token, ConnRec::Connected(ctx));
             },
@@ -53,13 +52,13 @@ impl<'a> ReactorHandler<'a> {
         let mut state = self.state.as_mut().unwrap();
         if let Some((accpt, mut handler)) = state.listeners.replace(token, None).unwrap() {
             if let Some(sock) = accpt.accept().unwrap() {
-                event_loop.reregister(&accpt, token, Interest::readable(), PollOpt::edge()).unwrap();
+                event_loop.reregister(&accpt, token, EventSet::readable(), PollOpt::edge()).unwrap();
 
                 let peeraddr = sock.peer_addr().unwrap();
                 let newtok = state.conns.insert(ConnRec::None)
                     .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")).unwrap();
                 if let Some(ctx) = handler(ConnResult::Connected(sock, newtok, peeraddr),&mut ReactorCtrl::new(&mut state, event_loop)) {
-                    event_loop.register_opt(ctx.get_evented(), newtok, ctx.get_interest() | Interest::hup(), PollOpt::edge()).unwrap();
+                    event_loop.register_opt(ctx.get_evented(), newtok, ctx.get_interest() | EventSet::hup(), PollOpt::edge()).unwrap();
                     state.conns.replace(newtok, ConnRec::Connected(ctx));
                 }
                 else {
@@ -74,44 +73,66 @@ impl<'a> ReactorHandler<'a> {
     }
 }
 
+
+
 impl<'a> Handler for ReactorHandler<'a>
 {
     type Timeout = usize;
     type Message = TaggedBuf;
 
-    fn readable(&mut self, event_loop: &mut EventLoop<ReactorHandler<'a>>, token: Token, hint: ReadHint) {
-        debug!("mio_processor::readable top, token: {:?}", token);
-        if self.state.as_ref().unwrap().listeners.contains(token) {
-            self.accept(event_loop, token);
-        } else {
-            self.on_read(event_loop, token, hint);
+    /// Invoked when the socket represented by `token` is ready to be operated
+    /// on. `events` indicates the specific operations that are
+    /// ready to be performed.
+    ///
+    /// For example, when a TCP socket is ready to be read from, `events` will
+    /// have `readable` set. When the socket is ready to be written to,
+    /// `events` will have `writable` set.
+    ///
+    /// This function will only be invoked a single time per socket per event
+    /// loop tick.
+    fn ready(&mut self, event_loop: &mut EventLoop<Self>, token: Token, events: EventSet) {
+        if events.is_readable() {
+            debug!("mio_processor::readable top, token: {:?}", token);
+            if self.state.as_ref().unwrap().listeners.contains(token) {
+                self.accept(event_loop, token);
+            } else {
+                self.on_read(event_loop, token, events);
+            }
+        }
+        else if events.is_writable() {
+            debug!("mio_processor::writable, token: {:?}", token);
+            let mut state = self.state.as_mut().unwrap();
+            match state.conns.replace(token, ConnRec::None) {
+                Some(ConnRec::Connected(mut ctx)) => {
+                    ctx.on_event(&mut ReactorCtrl::new(state, event_loop),
+                        EventType::Readable);
+                    event_loop.reregister(ctx.get_evented(), token,
+                        ctx.get_interest() | EventSet::hup(), PollOpt::edge()).unwrap();
+                    state.conns.replace(token, ConnRec::Connected(ctx));
+                },
+                Some(ConnRec::Pending(sock, mut handler)) => {
+                    let peeraddr = sock.peer_addr().unwrap();
+                    if let Some(ctx) = handler(ConnResult::Connected(sock, token, peeraddr), &mut ReactorCtrl::new(&mut state, event_loop)) {
+                        event_loop.reregister(ctx.get_evented(),
+                            token, ctx.get_interest() | EventSet::hup(), PollOpt::edge()).unwrap();
+                        state.conns.replace(token, ConnRec::Connected(ctx));
+                    }
+                    else {
+                        debug!("Outbound connection to {} rejected", peeraddr);
+                    }
+                },
+                _ => { panic!("Got a writable event for a non-present context") }
+            }
+
         }
     }
 
-    fn writable(&mut self, event_loop: &mut EventLoop<ReactorHandler<'a>>, token: Token) {
-        debug!("mio_processor::writable, token: {:?}", token);
-        let mut state = self.state.as_mut().unwrap();
-        match state.conns.replace(token, ConnRec::None) {
-            Some(ConnRec::Connected(mut ctx)) => {
-                ctx.on_event(&mut ReactorCtrl::new(state, event_loop),
-                    EventType::Readable);
-                event_loop.reregister(ctx.get_evented(), token,
-                    ctx.get_interest() | Interest::hup(), PollOpt::edge()).unwrap();
-                state.conns.replace(token, ConnRec::Connected(ctx));
-            },
-            Some(ConnRec::Pending(sock, mut handler)) => {
-                let peeraddr = sock.peer_addr().unwrap();
-                if let Some(ctx) = handler(ConnResult::Connected(sock, token, peeraddr), &mut ReactorCtrl::new(&mut state, event_loop)) {
-                    event_loop.reregister(ctx.get_evented(),
-                        token, ctx.get_interest() | Interest::hup(), PollOpt::edge()).unwrap();
-                    state.conns.replace(token, ConnRec::Connected(ctx));
-                }
-                else {
-                    debug!("Outbound connection to {} rejected", peeraddr);
-                }
-            },
-            _ => { panic!("Got a writable event for a non-present context") }
-        }
+    /// Invoked when `EventLoop` has been interrupted by a signal interrupt.
+    fn interrupted(&mut self, _event_loop: &mut EventLoop<Self>) {
+    }
+
+    /// Invoked at the end of an event loop tick.
+    fn tick(&mut self, _event_loop: &mut EventLoop<Self>) {
     }
 
 
@@ -123,7 +144,7 @@ impl<'a> Handler for ReactorHandler<'a>
                 ctx.on_event(&mut ReactorCtrl::new(state, event_loop),
                     EventType::Notify(msg.1));
                 event_loop.reregister(ctx.get_evented(), token,
-                    ctx.get_interest() | Interest::hup(), PollOpt::edge()).unwrap();
+                    ctx.get_interest() | EventSet::hup(), PollOpt::edge()).unwrap();
                 state.conns.replace(token, ConnRec::Connected(ctx));
             },
             Some(ConnRec::Pending(_,_)) => { panic!("Got a notify event for a pending socket connection"); },

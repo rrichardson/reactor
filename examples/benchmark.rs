@@ -1,4 +1,4 @@
-#![feature(core)]
+#![feature(slice_bytes)]
 
 /// See how quickly we can send 1,000,000 round trip pingpongs
 /// in a purely serial fashion
@@ -12,7 +12,7 @@ use reactor::{ReactorCtrl,
               Reactor,
               ConnResult,
               Evented,
-              Interest,
+              EventSet,
               Context,
               EventType,
               Token};
@@ -22,7 +22,7 @@ use reactor::tcp::{TcpStream};
 use time::{precise_time_ns};
 
 struct EchoConn {
-    interest: Interest,
+    interest: EventSet,
     sock : TcpStream,
     token : Token,
     count : u32,
@@ -76,7 +76,7 @@ impl Context for EchoConn {
         &self.sock as &Evented
     }
 
-    fn get_interest(&self) -> Interest {
+    fn get_interest(&self) -> EventSet {
         self.interest
     }
 }
@@ -96,7 +96,7 @@ fn main() {
                 ctrl.timeout_conn(1000, tok).unwrap();
 
                 Some(Box::new(EchoConn {
-                                interest: Interest::readable(),
+                                interest: EventSet::readable(),
                                 token: tok.clone(),
                                 sock: sock,
                                 count: 0,
@@ -113,7 +113,7 @@ fn main() {
                 println!("Completing connection to {}", addr);
                 client = Some(tok);
                 Some(Box::new(EchoConn {
-                                interest: Interest::readable(),
+                                interest: EventSet::readable(),
                                 token: tok.clone(),
                                 sock: sock,
                                 count: 0,

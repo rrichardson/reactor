@@ -1,4 +1,4 @@
-#![feature(core)]
+#![feature(slice_bytes)]
 
 /// This example will listen for incoming connections and, once connected, establish a ping/pong
 /// session with them.  It will execute 3 pingpongs before shutting itself down.
@@ -15,7 +15,7 @@ use reactor::{ReactorCtrl,
               Reactor,
               ConnResult,
               Evented,
-              Interest,
+              EventSet,
               Context,
               EventType,
               Token};
@@ -23,7 +23,7 @@ use reactor::{ReactorCtrl,
 use reactor::tcp::{TcpStream};
 
 struct EchoConn {
-    interest: Interest,
+    interest: EventSet,
     sock : TcpStream,
     token : Token,
     count : u32
@@ -73,7 +73,7 @@ impl Context for EchoConn {
         &self.sock as &Evented
     }
 
-    fn get_interest(&self) -> Interest {
+    fn get_interest(&self) -> EventSet {
         self.interest
     }
 }
@@ -93,7 +93,7 @@ fn main() {
                 ctrl.timeout_conn(1000, tok).unwrap();
 
                 Some(Box::new(EchoConn {
-                                interest: Interest::readable(),
+                                interest: EventSet::readable(),
                                 token: tok.clone(),
                                 sock: sock,
                                 count: 0 }))
@@ -109,7 +109,7 @@ fn main() {
                 println!("Completing connection to {}", addr);
                 client = Some(tok);
                 Some(Box::new(EchoConn {
-                                interest: Interest::readable(),
+                                interest: EventSet::readable(),
                                 token: tok.clone(),
                                 sock: sock,
                                 count: 0}))
