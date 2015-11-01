@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["ConnResult",""]],"struct":[["ReactorCtrl","ReactorCtrl is the event-loop control interface which is passed to every handler, both the listen/connect handlers as well as the mailbox for every Context that is managed by Reactor"]],"type":[["ConnHandler",""],["ListenRec",""],["TimeoutHandler",""],["TimerRec",""]]});

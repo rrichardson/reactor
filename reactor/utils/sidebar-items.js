@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["OutQueue","Simple manager of outbound data for a non-blocking socket"]]});

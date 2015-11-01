@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["EventType","The event types that will be handled by \\Context::on_event"]],"trait":[["Context","An abstraction over a socket or some other poll-able descriptor. Presently, anything that implements mio::Evented will do."]]});

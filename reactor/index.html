@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `reactor` crate.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, reactor">
+
+    <title>reactor - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../main.css">
+
+    
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        
+        <p class='location'></p><script>window.sidebarCurrent = {name: 'reactor', ty: 'mod', relpath: '../'};</script>
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content mod">
+<h1 class='fqn'><span class='in-band'>Crate <a class='mod' href=''>reactor</a></span><span class='out-of-band'><span id='render-detail'>
+            <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                [<span class='inner'>&#x2212;</span>]
+            </a>
+        </span><a id='src-0' class='srclink' href='../src/reactor/lib.rs.html#1-202' title='goto source code'>[src]</a></span></h1>
+<div class='docblock'><p>Reactor is based around two notions, an event loop (Reactor) and a Context, which is the main
+ mailbox handler for a connection (or datagram receiver). A context is also the manager of the
+ socket abstraction itself. Reactor offers utilities to make working with these easier, but the
+ actual creation and interaction with the socket is out of the purview of reactor and is owned
+ entirely by the Context impl.</p>
+
+<p># Example</p>
+
+<p>In this example, we create two Socket Contexts, one for the client connection, ClientConn, and one
+ for the accepting side of the connection, ServConn.
+ listen() takes a handler which we use to create the server side of the connection, when we
+ receive the connection, we start a timer for that connection, which we handle in the context&#39;s
+ mailbox. The timer event will keep reregistering itself unless the count has reached 5, at
+ which point it shuts down the event_loop and the program ends.</p>
+
+<p>Connect also takes a handler, which we use to construct the Client context when the connection
+ completes.</p>
+<pre class='rust rust-example-rendered'>
+
+ <span class='attribute'>#<span class='op'>!</span>[<span class='ident'>feature</span>(<span class='ident'>slice_bytes</span>)]</span>
+
+ <span class='kw'>extern</span> <span class='kw'>crate</span> <span class='ident'>reactor</span>;
+
+ <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>slice</span>::<span class='ident'>bytes</span>::<span class='ident'>copy_memory</span>;
+ <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>string</span>::<span class='ident'>String</span>;
+ <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>io</span>::{<span class='ident'>Read</span>, <span class='ident'>Write</span>};
+ <span class='kw'>use</span> <span class='ident'>reactor</span>::{<span class='ident'>ReactorCtrl</span>,
+               <span class='ident'>Reactor</span>,
+               <span class='ident'>ConnResult</span>,
+               <span class='ident'>Evented</span>,
+               <span class='ident'>EventSet</span>,
+               <span class='ident'>Context</span>,
+               <span class='ident'>EventType</span>,
+               <span class='ident'>Token</span>};
+
+ <span class='kw'>use</span> <span class='ident'>reactor</span>::<span class='ident'>tcp</span>::{<span class='ident'>TcpStream</span>};
+
+
+<span class='kw'>struct</span> <span class='ident'>ClientConn</span> {
+    <span class='ident'>interest</span>: <span class='ident'>EventSet</span>,
+    <span class='ident'>sock</span> : <span class='ident'>TcpStream</span>,
+    <span class='ident'>token</span> : <span class='ident'>Token</span>
+}
+
+<span class='kw'>impl</span> <span class='ident'>Context</span> <span class='kw'>for</span> <span class='ident'>ClientConn</span> {
+
+    <span class='comment'>//the event handler for the client connection, for this example,</span>
+    <span class='comment'>// we only care about readable events, we ignore the rest</span>
+    <span class='kw'>fn</span> <span class='ident'>on_event</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>ctrl</span> : <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ReactorCtrl</span>, <span class='ident'>evt</span> : <span class='ident'>EventType</span>) {
+        <span class='kw'>match</span> <span class='ident'>evt</span> {
+            <span class='ident'>EventType</span>::<span class='ident'>Readable</span> <span class='op'>=&gt;</span> {
+                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>buf</span> : [<span class='ident'>u8</span>; <span class='number'>5</span>] <span class='op'>=</span> [<span class='number'>0</span>; <span class='number'>5</span>];
+                <span class='kw'>let</span> <span class='ident'>num</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>sock</span>.<span class='ident'>read</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>buf</span>).<span class='ident'>unwrap</span>();
+                <span class='kw'>if</span> <span class='ident'>num</span> <span class='op'>==</span> <span class='number'>5</span> {
+                    <span class='kw'>let</span> <span class='ident'>msg</span> <span class='op'>=</span> <span class='ident'>String</span>::<span class='ident'>from_utf8_lossy</span>(<span class='kw-2'>&amp;</span><span class='ident'>buf</span>).<span class='ident'>into_owned</span>();
+
+                    <span class='kw'>if</span> <span class='ident'>msg</span> <span class='op'>==</span> <span class='string'>&quot;PING!&quot;</span> {
+                        <span class='ident'>copy_memory</span>(<span class='string'>&quot;PONG!&quot;</span>.<span class='ident'>as_bytes</span>(), <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>buf</span>);
+                        <span class='self'>self</span>.<span class='ident'>sock</span>.<span class='ident'>write</span>(<span class='kw-2'>&amp;</span><span class='ident'>buf</span>).<span class='ident'>unwrap</span>();
+                    }
+                }
+            },
+            _ <span class='op'>=&gt;</span> {}
+        }
+    }
+
+    <span class='kw'>fn</span> <span class='ident'>get_evented</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>Evented</span> {
+        <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>sock</span> <span class='kw'>as</span> <span class='kw-2'>&amp;</span><span class='ident'>Evented</span>
+    }
+
+    <span class='kw'>fn</span> <span class='ident'>get_interest</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>EventSet</span> {
+        <span class='self'>self</span>.<span class='ident'>interest</span>
+    }
+}
+
+<span class='kw'>struct</span> <span class='ident'>ServConn</span> {
+    <span class='ident'>interest</span>: <span class='ident'>EventSet</span>,
+    <span class='ident'>sock</span> : <span class='ident'>TcpStream</span>,
+    <span class='ident'>token</span> : <span class='ident'>Token</span>,
+    <span class='ident'>count</span> : <span class='ident'>u32</span>,
+}
+
+<span class='comment'>// here we indicate that we wish to handle only Timeout and Readable</span>
+<span class='comment'>// events, and ignore the rest</span>
+<span class='kw'>impl</span> <span class='ident'>Context</span> <span class='kw'>for</span> <span class='ident'>ServConn</span> {
+    <span class='kw'>fn</span> <span class='ident'>on_event</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='self'>self</span>, <span class='ident'>ctrl</span> : <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>ReactorCtrl</span>, <span class='ident'>evt</span> : <span class='ident'>EventType</span>) {
+        <span class='kw'>match</span> <span class='ident'>evt</span> {
+            <span class='ident'>EventType</span>::<span class='ident'>Timeout</span>(_) <span class='op'>=&gt;</span> {
+                <span class='kw'>if</span> <span class='self'>self</span>.<span class='ident'>count</span> <span class='op'>&lt;</span> <span class='number'>5</span> {
+                    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>buf</span> : [<span class='ident'>u8</span>; <span class='number'>5</span>] <span class='op'>=</span> [<span class='number'>0</span>; <span class='number'>5</span>];
+                    <span class='ident'>copy_memory</span>(<span class='string'>&quot;PING!&quot;</span>.<span class='ident'>as_bytes</span>(), <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>buf</span>);
+                    <span class='self'>self</span>.<span class='ident'>sock</span>.<span class='ident'>write</span>(<span class='kw-2'>&amp;</span><span class='ident'>buf</span>).<span class='ident'>unwrap</span>();
+                    <span class='self'>self</span>.<span class='ident'>count</span> <span class='op'>+=</span> <span class='number'>1</span>;
+                    <span class='ident'>ctrl</span>.<span class='ident'>timeout_conn</span>(<span class='number'>1000</span>, <span class='self'>self</span>.<span class='ident'>token</span>).<span class='ident'>unwrap</span>();
+                }
+                <span class='kw'>else</span> {
+                    <span class='ident'>ctrl</span>.<span class='ident'>shutdown</span>();
+                }
+            },
+            <span class='ident'>EventType</span>::<span class='ident'>Readable</span> <span class='op'>=&gt;</span> {
+                <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>buf</span> : [<span class='ident'>u8</span>; <span class='number'>5</span>] <span class='op'>=</span> [<span class='number'>0</span>; <span class='number'>5</span>];
+                <span class='kw'>let</span> <span class='ident'>num</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>sock</span>.<span class='ident'>read</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>buf</span>).<span class='ident'>unwrap</span>();
+                <span class='kw'>let</span> <span class='ident'>msg</span> <span class='op'>=</span> <span class='ident'>String</span>::<span class='ident'>from_utf8_lossy</span>(<span class='kw-2'>&amp;</span><span class='ident'>buf</span>).<span class='ident'>into_owned</span>();
+                <span class='macro'>assert</span><span class='macro'>!</span>(<span class='ident'>msg</span> <span class='op'>==</span> <span class='string'>&quot;PONG!&quot;</span>);
+            },
+            _ <span class='op'>=&gt;</span> {}
+       }
+    }
+
+    <span class='kw'>fn</span> <span class='ident'>get_evented</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='kw-2'>&amp;</span><span class='ident'>Evented</span> {
+        <span class='kw-2'>&amp;</span><span class='self'>self</span>.<span class='ident'>sock</span> <span class='kw'>as</span> <span class='kw-2'>&amp;</span><span class='ident'>Evented</span>
+    }
+
+    <span class='kw'>fn</span> <span class='ident'>get_interest</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>EventSet</span> {
+        <span class='self'>self</span>.<span class='ident'>interest</span>
+    }
+}
+<span class='kw'>fn</span> <span class='ident'>main</span>() {
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>client</span> : <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Token</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>server</span> : <span class='prelude-ty'>Option</span><span class='op'>&lt;</span><span class='ident'>Token</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='prelude-val'>None</span>;
+    <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>r</span> <span class='op'>=</span> <span class='ident'>Reactor</span>::<span class='ident'>new</span>();
+
+    <span class='comment'>//in order to listen, we must be prepared to create new connections</span>
+    <span class='comment'>//the handler for listen provides a socket a token, and the peer address</span>
+    <span class='comment'>//we then return an instance of Context of our choosing, in this case</span>
+    <span class='comment'>//we want to handle each inbound connection with an instance of ServConn</span>
+    <span class='kw'>let</span> <span class='ident'>_ltoken</span> <span class='op'>=</span> <span class='ident'>r</span>.<span class='ident'>listen</span>(<span class='string'>&quot;127.0.0.1:10000&quot;</span>, <span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='op'>|</span><span class='ident'>res</span>, <span class='ident'>ctrl</span><span class='op'>|</span> {
+        <span class='kw'>match</span> <span class='ident'>res</span> {
+            <span class='ident'>ConnResult</span>::<span class='ident'>Connected</span>(<span class='ident'>sock</span>, <span class='ident'>tok</span>, <span class='ident'>addr</span>) <span class='op'>=&gt;</span> {
+                <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;Connection request from {}&quot;</span>, <span class='ident'>addr</span>);
+                <span class='ident'>server</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>tok</span>);
+
+                <span class='comment'>//We&#39;ve received a connection. Initiate PINGPONG protocol in 1 second</span>
+                <span class='ident'>ctrl</span>.<span class='ident'>timeout_conn</span>(<span class='number'>1000</span>, <span class='ident'>tok</span>).<span class='ident'>unwrap</span>();
+
+                <span class='prelude-val'>Some</span>(<span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>ServConn</span> {
+                                <span class='ident'>interest</span>: <span class='ident'>EventSet</span>::<span class='ident'>readable</span>(),
+                                <span class='ident'>token</span>: <span class='ident'>tok</span>.<span class='ident'>clone</span>(),
+                                <span class='ident'>sock</span>: <span class='ident'>sock</span>,
+                                <span class='ident'>count</span>: <span class='number'>0</span>}))
+            },
+            _ <span class='op'>=&gt;</span> {<span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;We shouldn&#39;t be here&quot;</span>)}
+        }
+    })).<span class='ident'>unwrap</span>();
+
+    <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;Connecting to localhost&quot;</span>);
+
+    <span class='comment'>//Like listen, connect requires that we specify how to create an instance of</span>
+    <span class='comment'>//Context when we successfully complete our connection. In this case we create</span>
+    <span class='comment'>//an instance of ClientConn</span>
+    <span class='ident'>r</span>.<span class='ident'>connect</span>(<span class='string'>&quot;localhost&quot;</span>, <span class='number'>10000</span>, <span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='op'>|</span><span class='ident'>res</span>, <span class='ident'>_ctrl</span><span class='op'>|</span> {
+        <span class='kw'>match</span> <span class='ident'>res</span> {
+            <span class='ident'>ConnResult</span>::<span class='ident'>Connected</span>(<span class='ident'>sock</span>, <span class='ident'>tok</span>, <span class='ident'>addr</span>) <span class='op'>=&gt;</span> {
+                <span class='macro'>println</span><span class='macro'>!</span>(<span class='string'>&quot;Completing connection to {}&quot;</span>, <span class='ident'>addr</span>);
+                <span class='ident'>client</span> <span class='op'>=</span> <span class='prelude-val'>Some</span>(<span class='ident'>tok</span>);
+                <span class='prelude-val'>Some</span>(<span class='ident'>Box</span>::<span class='ident'>new</span>(<span class='ident'>ClientConn</span> {
+                                <span class='ident'>interest</span>: <span class='ident'>EventSet</span>::<span class='ident'>readable</span>(),
+                                <span class='ident'>token</span>: <span class='ident'>tok</span>.<span class='ident'>clone</span>(),
+                                <span class='ident'>sock</span>: <span class='ident'>sock</span>,
+                              }))
+            },
+            <span class='ident'>ConnResult</span>::<span class='ident'>Failed</span>(<span class='ident'>err</span>) <span class='op'>=&gt;</span> {<span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;Failed to connect to localhost:10000 error: {}&quot;</span>, <span class='ident'>err</span>)}
+        }
+    })).<span class='ident'>unwrap</span>();
+
+    <span class='comment'>//block while running the event loop until it is terminated</span>
+    <span class='ident'>r</span>.<span class='ident'>run</span>();
+
+}
+</pre>
+</div><h2 id='modules' class='section-header'><a href="#modules">Modules</a></h2>
+<table>
+                    <tr class=' module-item'>
+                        <td><a class='mod' href='tcp/index.html'
+                               title='reactor::tcp'>tcp</a></td>
+                        <td class='docblock short'>
+                             
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='mod' href='udp/index.html'
+                               title='reactor::udp'>udp</a></td>
+                        <td class='docblock short'>
+                             
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='mod' href='utils/index.html'
+                               title='reactor::utils'>utils</a></td>
+                        <td class='docblock short'>
+                             
+                        </td>
+                    </tr>
+                </table><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
+<table>
+                    <tr class=' module-item'>
+                        <td><a class='struct' href='struct.EventSet.html'
+                               title='reactor::EventSet'>EventSet</a></td>
+                        <td class='docblock short'>
+                             
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='struct' href='struct.Reactor.html'
+                               title='reactor::Reactor'>Reactor</a></td>
+                        <td class='docblock short'>
+                             
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='struct' href='struct.ReactorCtrl.html'
+                               title='reactor::ReactorCtrl'>ReactorCtrl</a></td>
+                        <td class='docblock short'>
+                             <p>ReactorCtrl is the event-loop control interface which is passed to every
+handler, both the listen/connect handlers as well as the mailbox for
+every Context that is managed by Reactor</p>
+
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='struct' href='struct.Token.html'
+                               title='reactor::Token'>Token</a></td>
+                        <td class='docblock short'>
+                             
+                        </td>
+                    </tr>
+                </table><h2 id='enums' class='section-header'><a href="#enums">Enums</a></h2>
+<table>
+                    <tr class=' module-item'>
+                        <td><a class='enum' href='enum.ConnResult.html'
+                               title='reactor::ConnResult'>ConnResult</a></td>
+                        <td class='docblock short'>
+                             
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='enum' href='enum.EventType.html'
+                               title='reactor::EventType'>EventType</a></td>
+                        <td class='docblock short'>
+                             <p>The event types that will be handled by \Context::on_event</p>
+
+                        </td>
+                    </tr>
+                </table><h2 id='traits' class='section-header'><a href="#traits">Traits</a></h2>
+<table>
+                    <tr class=' module-item'>
+                        <td><a class='trait' href='trait.Context.html'
+                               title='reactor::Context'>Context</a></td>
+                        <td class='docblock short'>
+                             <p>An abstraction over a socket or some other poll-able
+descriptor. Presently, anything that implements
+<a href="http://rustdoc.s3-website-us-east-1.amazonaws.com/mio/master/mio/trait.Evented.html">mio::Evented</a>
+will do.</p>
+
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='trait' href='trait.Evented.html'
+                               title='reactor::Evented'>Evented</a></td>
+                        <td class='docblock short'>
+                             <p>A value that may be registered with an <code>EventLoop</code></p>
+
+                        </td>
+                    </tr>
+                </table><h2 id='types' class='section-header'><a href="#types">Type Definitions</a></h2>
+<table>
+                    <tr class=' module-item'>
+                        <td><a class='type' href='type.ConnHandler.html'
+                               title='reactor::ConnHandler'>ConnHandler</a></td>
+                        <td class='docblock short'>
+                             
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='type' href='type.ListenRec.html'
+                               title='reactor::ListenRec'>ListenRec</a></td>
+                        <td class='docblock short'>
+                             
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='type' href='type.TimeoutHandler.html'
+                               title='reactor::TimeoutHandler'>TimeoutHandler</a></td>
+                        <td class='docblock short'>
+                             
+                        </td>
+                    </tr>
+                
+                    <tr class=' module-item'>
+                        <td><a class='type' href='type.TimerRec.html'
+                               title='reactor::TimerRec'>TimerRec</a></td>
+                        <td class='docblock short'>
+                             
+                        </td>
+                    </tr>
+                </table></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../";
+        window.currentCrate = "reactor";
+        window.playgroundUrl = "";
+    </script>
+    <script src="../jquery.js"></script>
+    <script src="../main.js"></script>
+    
+    <script async src="../search-index.js"></script>
+</body>
+</html>

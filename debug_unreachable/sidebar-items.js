@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["__unreachable","Hint to the optimizer that any code path which calls this function is statically unreachable and can be removed."]],"macro":[["debug_unreachable!","`panic!()` in debug builds, optimization hint in release."]]});

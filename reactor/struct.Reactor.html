@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `Reactor` struct in crate `reactor`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, Reactor">
+
+    <title>reactor::Reactor - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../main.css">
+
+    
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <nav class="sidebar">
+        
+        <p class='location'><a href='index.html'>reactor</a></p><script>window.sidebarCurrent = {name: 'Reactor', ty: 'struct', relpath: ''};</script><script defer src="sidebar-items.js"></script>
+    </nav>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content struct">
+<h1 class='fqn'><span class='in-band'>Struct <a href='index.html'>reactor</a>::<wbr><a class='struct' href=''>Reactor</a></span><span class='out-of-band'><span id='render-detail'>
+            <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                [<span class='inner'>&#x2212;</span>]
+            </a>
+        </span><a id='src-38' class='srclink' href='../src/reactor/reactor.rs.html#14-19' title='goto source code'>[src]</a></span></h1>
+<pre class='rust struct'>pub struct Reactor&lt;'a&gt; {
+    // some fields omitted
+}</pre><h2 id='methods'>Methods</h2><h3 class='impl'><code>impl&lt;'a&gt; <a class='struct' href='../reactor/struct.Reactor.html' title='reactor::Reactor'>Reactor</a>&lt;'a&gt;</code></h3><div class='impl-items'><h4 id='method.new' class='method'><code>fn <a href='#method.new' class='fnname'>new</a>() -&gt; <a class='struct' href='../reactor/struct.Reactor.html' title='reactor::Reactor'>Reactor</a>&lt;'a&gt;</code></h4>
+<div class='docblock'><p>Construct a new Reactor with (hopefully) intelligent defaults</p>
+</div><h4 id='method.configured' class='method'><code>fn <a href='#method.configured' class='fnname'>configured</a>(cfg: ReactorConfig) -&gt; <a class='struct' href='../reactor/struct.Reactor.html' title='reactor::Reactor'>Reactor</a>&lt;'a&gt;</code></h4>
+<div class='docblock'><p>Construct a new engine with defaults specified by the user</p>
+</div><h4 id='method.connect' class='method'><code>fn <a href='#method.connect' class='fnname'>connect</a>&lt;'b&gt;(&amp;mut self, hostname: &amp;'b <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>, port: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.usize.html'>usize</a>, handler: <a class='struct' href='https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html' title='alloc::boxed::Box'>Box</a>&lt;<a class='type' href='../reactor/type.ConnHandler.html' title='reactor::ConnHandler'>ConnHandler</a>&lt;'a&gt;&gt;) -&gt; <a class='type' href='https://doc.rust-lang.org/nightly/std/io/error/type.Result.html' title='std::io::error::Result'>Result</a>&lt;<a class='struct' href='../reactor/struct.Token.html' title='reactor::Token'>Token</a>&gt;</code></h4>
+<div class='docblock'><p>Attempt a connection to the remote host specified at the remote hostname or ip address
+and the port.  This is a connection on a non-blocking socket, so the connect call will
+return immediately.  It requires a handler, to which it will supply a <code>ConnResult</code> which
+will indicate success or failure. On success, it will supply a socket, a token, and a
+remote IP addr. It then expects an Option<Box<`Context`>&gt; so that it can manage its events</p>
+</div><h4 id='method.listen' class='method'><code>fn <a href='#method.listen' class='fnname'>listen</a>&lt;A: <a class='trait' href='https://doc.rust-lang.org/nightly/std/net/addr/trait.ToSocketAddrs.html' title='std::net::addr::ToSocketAddrs'>ToSocketAddrs</a>&gt;(&amp;mut self, addr: A, handler: <a class='struct' href='https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html' title='alloc::boxed::Box'>Box</a>&lt;<a class='type' href='../reactor/type.ConnHandler.html' title='reactor::ConnHandler'>ConnHandler</a>&lt;'a&gt;&gt;) -&gt; <a class='type' href='https://doc.rust-lang.org/nightly/std/io/error/type.Result.html' title='std::io::error::Result'>Result</a>&lt;<a class='struct' href='../reactor/struct.Token.html' title='reactor::Token'>Token</a>&gt;</code></h4>
+<div class='docblock'><p>Listen on the supplied IP address:port for incoming TCP connections.  This returns
+immediately and expects a handler to which it will supply <code>ConnResult</code> and expect
+Option<Box<`Context`>&gt; as a result</p>
+</div><h4 id='method.channel' class='method'><code>fn <a href='#method.channel' class='fnname'>channel</a>(&amp;self) -&gt; <a class='struct' href='../mio/event_loop/struct.Sender.html' title='mio::event_loop::Sender'>Sender</a>&lt;TaggedBuf&gt;</code></h4>
+<div class='docblock'><p>fetch the event_loop channel for notifying the event_loop of new outbound data</p>
+</div><h4 id='method.timeout' class='method'><code>fn <a href='#method.timeout' class='fnname'>timeout</a>(&amp;mut self, duration: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.u64.html'>u64</a>, handler: <a class='struct' href='https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html' title='alloc::boxed::Box'>Box</a>&lt;<a class='type' href='../reactor/type.TimeoutHandler.html' title='reactor::TimeoutHandler'>TimeoutHandler</a>&lt;'a&gt;&gt;) -&gt; <a class='type' href='../mio/timer/type.TimerResult.html' title='mio::timer::TimerResult'>TimerResult</a>&lt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>(<a class='struct' href='../mio/timer/struct.Timeout.html' title='mio::timer::Timeout'>Timeout</a>, <a class='struct' href='../reactor/struct.Token.html' title='reactor::Token'>Token</a>)</a>&gt;</code></h4>
+<div class='docblock'><p>Set a timeout to be executed by the event loop after duration milliseconds
+The supplied handler, which is a FnMut will be invoked no sooner than the
+timeout</p>
+</div><h4 id='method.timeout_conn' class='method'><code>fn <a href='#method.timeout_conn' class='fnname'>timeout_conn</a>(&amp;mut self, duration: <a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.u64.html'>u64</a>, ctxtok: <a class='struct' href='../reactor/struct.Token.html' title='reactor::Token'>Token</a>) -&gt; <a class='type' href='../mio/timer/type.TimerResult.html' title='mio::timer::TimerResult'>TimerResult</a>&lt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>(<a class='struct' href='../mio/timer/struct.Timeout.html' title='mio::timer::Timeout'>Timeout</a>, <a class='struct' href='../reactor/struct.Token.html' title='reactor::Token'>Token</a>)</a>&gt;</code></h4>
+<div class='docblock'><p>Set a timeout to be executed by the event loop after duration milliseconds
+ctxtok specifies a Context to which the timer callback will be directed
+through the usual event dispatch mechanism for <code>Context</code>s
+This is useful for handling protocols which have a ping/pong style timeout</p>
+</div><h4 id='method.register' class='method'><code>fn <a href='#method.register' class='fnname'>register</a>&lt;C&gt;(&amp;mut self, ctx: C) -&gt; <a class='type' href='https://doc.rust-lang.org/nightly/std/io/error/type.Result.html' title='std::io::error::Result'>Result</a>&lt;<a class='struct' href='../reactor/struct.Token.html' title='reactor::Token'>Token</a>&gt; <span class='where'>where C: <a class='trait' href='../reactor/trait.Context.html' title='reactor::Context'>Context</a> + 'static</span></code></h4>
+<div class='docblock'><p>Trade in an existing context (connected to a resource) and get a Token
+The context will be registered for whichever events are specified in
+its own interest retrieved by get_interest()</p>
+</div><h4 id='method.deregister' class='method'><code>fn <a href='#method.deregister' class='fnname'>deregister</a>(&amp;mut self, token: <a class='struct' href='../reactor/struct.Token.html' title='reactor::Token'>Token</a>) -&gt; <a class='type' href='https://doc.rust-lang.org/nightly/std/io/error/type.Result.html' title='std::io::error::Result'>Result</a>&lt;<a class='struct' href='https://doc.rust-lang.org/nightly/alloc/boxed/struct.Box.html' title='alloc::boxed::Box'>Box</a>&lt;<a class='trait' href='../reactor/trait.Context.html' title='reactor::Context'>Context</a>&gt;&gt;</code></h4>
+<div class='docblock'><p>Trade in your token for a Context and deregister the Context&#39;s socket/evented
+from the event_loop</p>
+</div><h4 id='method.run' class='method'><code>fn <a href='#method.run' class='fnname'>run</a>(&amp;mut self)</code></h4>
+<div class='docblock'><p>process all incoming and outgoing events in a loop</p>
+</div><h4 id='method.run_once' class='method'><code>fn <a href='#method.run_once' class='fnname'>run_once</a>(&amp;mut self)</code></h4>
+<div class='docblock'><p>process all incoming and outgoing events in a loop</p>
+</div><h4 id='method.shutdown' class='method'><code>fn <a href='#method.shutdown' class='fnname'>shutdown</a>(&amp;mut self)</code></h4>
+<div class='docblock'><p>calculates the 11th digit of pi</p>
+</div></div></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <aside id="help" class="hidden">
+        <div>
+            <h1 class="hidden">Help</h1>
+
+            <div class="shortcuts">
+                <h2>Keyboard Shortcuts</h2>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h2>Search Tricks</h2>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code>)
+                </p>
+            </div>
+        </div>
+    </aside>
+
+    
+
+    <script>
+        window.rootPath = "../";
+        window.currentCrate = "reactor";
+        window.playgroundUrl = "";
+    </script>
+    <script src="../jquery.js"></script>
+    <script src="../main.js"></script>
+    
+    <script async src="../search-index.js"></script>
+</body>
+</html>
