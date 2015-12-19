@@ -26,8 +26,7 @@ impl<'a> Reactor<'a>
         let config = ReactorConfig {
             out_queue_size: 524288,
             max_connections: 10240,
-            timers_per_connection: 1,
-            poll_timeout_ms: 100
+            timers_per_connection: 1
         };
 
         Self::configured(config)
@@ -37,8 +36,7 @@ impl<'a> Reactor<'a>
     pub fn configured(cfg: ReactorConfig) -> Reactor<'a> {
         let eloop = EventLoop::configured(
                     Self::event_loop_config(
-                        cfg.out_queue_size, cfg.poll_timeout_ms,
-                        (cfg.max_connections * cfg.timers_per_connection))).unwrap();
+                        cfg.out_queue_size, (cfg.max_connections * cfg.timers_per_connection))).unwrap();
 
         let state = ReactorState::new(cfg);
 
@@ -48,15 +46,14 @@ impl<'a> Reactor<'a>
         }
     }
 
-    fn event_loop_config(queue_sz : usize, timeout: usize, timer_cap : usize) -> EventLoopConfig {
-        EventLoopConfig {
-            io_poll_timeout_ms: timeout,
-            notify_capacity: queue_sz,
-            messages_per_tick: 512,
-            timer_tick_ms: 10,
-            timer_wheel_size: 1_024,
-            timer_capacity: timer_cap
-        }
+    fn event_loop_config(queue_sz : usize, timer_cap : usize) -> EventLoopConfig {
+        let mut foo = EventLoopConfig::new();
+        foo.notify_capacity(queue_sz).
+            messages_per_tick(512).
+            timer_tick_ms(10).
+            timer_wheel_size(1_024).
+            timer_capacity(timer_cap);
+        return foo;
     }
 
     /// Attempt a connection to the remote host specified at the remote hostname or ip address
@@ -132,7 +129,7 @@ impl<'a> Reactor<'a>
     /// process all incoming and outgoing events in a loop
     pub fn run_once(&mut self) {
         self.handler.state = self.state.take();
-        self.event_loop.run_once(&mut self.handler).map_err(|_| ()).unwrap();
+        self.event_loop.run_once(&mut self.handler, None).map_err(|_| ()).unwrap();
         self.state = self.handler.state.take();
     }
 

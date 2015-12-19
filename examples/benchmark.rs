@@ -4,6 +4,7 @@
 /// in a purely serial fashion
 extern crate time;
 extern crate reactor;
+extern crate env_logger;
 
 use std::slice::bytes::copy_memory;
 use std::string::String;
@@ -82,6 +83,8 @@ impl Context for EchoConn {
 }
 
 fn main() {
+    env_logger::init().unwrap();
+
     let mut client : Option<Token> = None;
     let mut server : Option<Token> = None;
     let mut r = Reactor::new();

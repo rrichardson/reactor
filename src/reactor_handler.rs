@@ -51,14 +51,13 @@ impl<'a> ReactorHandler<'a> {
 
         let mut state = self.state.as_mut().unwrap();
         if let Some((accpt, mut handler)) = state.listeners.replace(token, None).unwrap() {
-            if let Some(sock) = accpt.accept().unwrap() {
+            if let Some((sock, peeraddr)) = accpt.accept().unwrap() {
                 event_loop.reregister(&accpt, token, EventSet::readable(), PollOpt::edge()).unwrap();
 
-                let peeraddr = sock.peer_addr().unwrap();
                 let newtok = state.conns.insert(ConnRec::None)
                     .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")).unwrap();
                 if let Some(ctx) = handler(ConnResult::Connected(sock, newtok, peeraddr),&mut ReactorCtrl::new(&mut state, event_loop)) {
-                    event_loop.register_opt(ctx.get_evented(), newtok, ctx.get_interest() | EventSet::hup(), PollOpt::edge()).unwrap();
+                    event_loop.register(ctx.get_evented(), newtok, ctx.get_interest() | EventSet::hup(), PollOpt::edge()).unwrap();
                     state.conns.replace(newtok, ConnRec::Connected(ctx));
                 }
                 else {

@@ -22,6 +22,7 @@
 //! #![feature(slice_bytes)]
 //!
 //! extern crate reactor;
+//! extern crate env_logger;
 //!
 //! use std::slice::bytes::copy_memory;
 //! use std::string::String;
@@ -118,6 +119,7 @@
 //!    }
 //!}
 //!fn main() {
+//!    env_logger::init().unwrap();
 //!    let mut client : Option<Token> = None;
 //!    let mut server : Option<Token> = None;
 //!    let mut r = Reactor::new();

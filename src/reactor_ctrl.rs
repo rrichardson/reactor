@@ -46,8 +46,7 @@ pub enum ConnRec<'a> {
 pub struct ReactorConfig {
     pub out_queue_size: usize,
     pub max_connections: usize,
-    pub timers_per_connection: usize,
-    pub poll_timeout_ms: usize,
+    pub timers_per_connection: usize
 }
 
 pub struct ReactorState<'a> {
@@ -116,7 +115,7 @@ impl<'a, 'b : 'a> ReactorCtrl<'a, 'b> {
         let sock = try!(TcpStream::connect(&saddr));
         let tok = try!(self.state.conns.insert(ConnRec::None)
                 .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")));
-        try!(self.event_loop.register_opt(&sock, tok, EventSet::writable(), PollOpt::edge()));
+        try!(self.event_loop.register(&sock, tok, EventSet::writable(), PollOpt::edge()));
         self.state.conns[tok] = ConnRec::Pending(sock, handler);
         Ok(tok)
     }
@@ -133,7 +132,7 @@ impl<'a, 'b : 'a> ReactorCtrl<'a, 'b> {
         let tok = try!(self.state.listeners.insert(Some((server,handler)))
                 .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")));
         if let &mut Some((ref server, _)) = self.state.listeners.get_mut(tok).unwrap() {
-            try!(self.event_loop.register_opt(server, tok, EventSet::readable(), PollOpt::edge()));
+            try!(self.event_loop.register(server, tok, EventSet::readable(), PollOpt::edge()));
         }
         Ok(tok)
     }
@@ -169,7 +168,7 @@ impl<'a, 'b : 'a> ReactorCtrl<'a, 'b> {
         let token = try!(self.state.conns.insert(ConnRec::None)
             .map_err(|_|Error::new(ErrorKind::Other, "Failed to insert into slab")));
 
-        try!(self.event_loop.register_opt(foo.get_evented() as &Evented, token, foo.get_interest(), PollOpt::edge()));
+        try!(self.event_loop.register(foo.get_evented() as &Evented, token, foo.get_interest(), PollOpt::edge()));
 
         self.state.conns[token] = ConnRec::Connected(foo);
         Ok(token)
