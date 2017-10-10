@@ -5,7 +5,9 @@
 
 [API DOCS](http://rrichardson.github.io/reactor/)
 
-## Reactor ##
+## Reactor (deprecated in favor of Tokio) ##
+
+See : https://github.com/tokio-rs/tokio
 
 A high performance, cross platform library that makes event-driven network programming easy.
 
