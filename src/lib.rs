@@ -152,7 +152,7 @@
 //!    //Like listen, connect requires that we specify how to create an instance of
 //!    //Context when we successfully complete our connection. In this case we create
 //!    //an instance of ClientConn
-//!    r.connect("localhost", 10000, Box::new(|res, _ctrl| {
+//!    r.connect("127.0.0.1", 10000, Box::new(|res, _ctrl| {
 //!        match res {
 //!            ConnResult::Connected(sock, tok, addr) => {
 //!                println!("Completing connection to {}", addr);
